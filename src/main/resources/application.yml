@@ -24,6 +24,8 @@ quarkus:
   rest-client:
     policy-server:
       url: ${POLICY_SERVER_URL:http://localhost:8097}
+  management:
+    enabled: true
 
 faf:
   use-policy-server: ${USE_POLICY_SERVER:false}
