@@ -1,7 +1,7 @@
 # FAF Message Broker
 
 The **FAF Message Broker** is a high-performance gateway and message routing service for the [Forged Alliance Forever (FAF)](https://faforever.com/) platform. 
-The service iis built to be the central handler of all real-time messaging between clients and backend services.
+The service is built to be the central handler of all messaging between clients and backend services.
 
 Built on Quarkus and Java 25 with virtual threads, it bridges real-time client WebSocket connections with backend RabbitMQ messaging infrastructure, enforcing JSON schema validation and JWT authentication.
 
