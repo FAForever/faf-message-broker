@@ -21,6 +21,7 @@ dependencies {
     errorprone("com.google.errorprone:error_prone_core:2.49.0")
 
     implementation(enforcedPlatform("io.quarkus.platform:quarkus-bom:${property("quarkusPlatformVersion")}"))
+    implementation("io.quarkus:quarkus-container-image-docker")
     implementation("io.quarkus:quarkus-messaging-rabbitmq")
     implementation("io.quarkus:quarkus-websockets-next")
     implementation("io.quarkus:quarkus-config-yaml")
