@@ -1,0 +1,315 @@
+package com.faforever.server.message;
+
+import com.faforever.server.domain.LobbyCommandSchemaRepository;
+import com.faforever.server.message.client.Message;
+import com.faforever.server.message.service.InboundMessage;
+import com.faforever.server.message.service.OutboundLobbyMessage;
+import com.faforever.server.message.service.OutboundTarget;
+import com.faforever.server.message.service.LobbySchemaDetails;
+import io.quarkus.test.InjectMock;
+import io.quarkus.test.component.QuarkusComponentTest;
+import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
+import jakarta.inject.Inject;
+import org.eclipse.microprofile.reactive.messaging.Emitter;
+import org.eclipse.microprofile.reactive.messaging.Metadata;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.NullNode;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.StringNode;
+
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentCaptor.captor;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@QuarkusComponentTest
+class MessageBrokerTest {
+
+    private static final int PLAYER_ID = 1;
+    private static final long SESSION_ID_1 = 2;
+    private static final long SESSION_ID_2 = 3;
+
+    private static final String COMMAND = "test";
+    private static final String SCHEMA_STRING = """
+                                                {
+                                                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "command": { "const": "test" }
+                                                  },
+                                                  "required": ["command"],
+                                                  "additionalProperties": false
+                                                }
+                                                """;
+    private static final ObjectNode TEST_SCHEMA = (ObjectNode) new JsonMapper().readTree(SCHEMA_STRING);
+    ;
+
+    @Inject
+    MessageBroker messageBroker;
+
+    @InjectMock
+    private Emitter<InboundMessage> lobbyMessageEmitter;
+    @InjectMock
+    private LobbyCommandSchemaRepository lobbyCommandSchemaRepository;
+
+    @Nested
+    class Inbound {
+
+        @Test
+        void testUnknownLobbyMessage() {
+            assertThrows(IllegalArgumentException.class, () -> messageBroker.handleInboundMessage(
+                    createInboundMessage(Map.of("command", new StringNode(COMMAND)))));
+        }
+
+        @Test
+        void testInvalidLobbyMessage() {
+            when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
+                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA)));
+
+            assertThrows(IllegalArgumentException.class, () -> messageBroker.handleInboundMessage(
+                    createInboundMessage(Map.of("command", new StringNode(COMMAND), "key", NullNode.getInstance()))));
+        }
+
+        @Test
+        void testValidLobbyMessage() {
+            when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
+                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA)));
+
+            InboundMessage message = createInboundMessage(Map.of("command", new StringNode(COMMAND)));
+            messageBroker.handleInboundMessage(message);
+
+            ArgumentCaptor<org.eclipse.microprofile.reactive.messaging.Message<InboundMessage>> messageCaptor = captor();
+
+            verify(lobbyMessageEmitter).send(messageCaptor.capture());
+
+            org.eclipse.microprofile.reactive.messaging.Message<InboundMessage> sentMessage = messageCaptor.getValue();
+            assertEquals(message, sentMessage.getPayload());
+
+            Metadata metadata = sentMessage.getMetadata();
+            OutgoingRabbitMQMetadata outgoingRabbitMQMetadata = metadata.get(OutgoingRabbitMQMetadata.class)
+                                                                        .orElseThrow();
+            assertEquals(2, outgoingRabbitMQMetadata.getProperties().getDeliveryMode());
+            assertEquals(COMMAND, outgoingRabbitMQMetadata.getRoutingKey());
+        }
+
+        @Test
+        void testInvalidGameMessage() {
+            assertThrows(IllegalArgumentException.class, () -> messageBroker.handleInboundMessage(
+                    createInboundMessage(Map.of("command", new StringNode("Test"), "target", new StringNode("game")))));
+        }
+
+        @Test
+        void testValidGameMessage() {
+            InboundMessage message = createInboundMessage(Map.of("command", new StringNode("Test"), "target", new StringNode("game"), "args", new ArrayNode(JsonNodeFactory.instance)));
+            messageBroker.handleInboundMessage(message);
+
+            ArgumentCaptor<org.eclipse.microprofile.reactive.messaging.Message<InboundMessage>> messageCaptor = captor();
+
+            verify(lobbyMessageEmitter).send(messageCaptor.capture());
+
+            org.eclipse.microprofile.reactive.messaging.Message<InboundMessage> sentMessage = messageCaptor.getValue();
+            assertEquals(message, sentMessage.getPayload());
+
+            Metadata metadata = sentMessage.getMetadata();
+            OutgoingRabbitMQMetadata outgoingRabbitMQMetadata = metadata.get(OutgoingRabbitMQMetadata.class)
+                                                                        .orElseThrow();
+            assertEquals(2, outgoingRabbitMQMetadata.getProperties().getDeliveryMode());
+            assertEquals("gpg", outgoingRabbitMQMetadata.getRoutingKey());
+        }
+
+        @Test
+        void testSchemaRegistration() {
+            LobbySchemaDetails lobbySchemaDetails = new LobbySchemaDetails(COMMAND,
+                                                                           LobbySchemaDetails.Direction.INBOUND,
+                                                                           TEST_SCHEMA);
+            messageBroker.handleLobbySchemaRegistration(lobbySchemaDetails);
+
+            verify(lobbyCommandSchemaRepository).save(lobbySchemaDetails);
+
+            InboundMessage message = createInboundMessage(Map.of("command", new StringNode(COMMAND)));
+            messageBroker.handleInboundMessage(message);
+
+            ArgumentCaptor<org.eclipse.microprofile.reactive.messaging.Message<InboundMessage>> messageCaptor = captor();
+
+            verify(lobbyMessageEmitter).send(messageCaptor.capture());
+
+            org.eclipse.microprofile.reactive.messaging.Message<InboundMessage> sentMessage = messageCaptor.getValue();
+            assertEquals(message, sentMessage.getPayload());
+
+            Metadata metadata = sentMessage.getMetadata();
+            OutgoingRabbitMQMetadata outgoingRabbitMQMetadata = metadata.get(OutgoingRabbitMQMetadata.class)
+                                                                        .orElseThrow();
+            assertEquals(2, outgoingRabbitMQMetadata.getProperties().getDeliveryMode());
+            assertEquals(COMMAND, outgoingRabbitMQMetadata.getRoutingKey());
+        }
+
+        private InboundMessage createInboundMessage(Map<String, ? extends JsonNode> properties) {
+            ObjectNode node = JsonNodeFactory.instance.objectNode();
+            node.setAll(properties);
+            Message.Passthrough message = Message.Passthrough.of(node);
+            return new InboundMessage(SESSION_ID_1, PLAYER_ID, message);
+        }
+    }
+
+    @Nested
+    class Outbound {
+
+        private final SessionHandler sessionHandler1 = mock();
+        private final SessionHandler sessionHandler2 = mock();
+
+        @BeforeEach
+        void setup() {
+            when(sessionHandler1.playerId()).thenReturn(PLAYER_ID);
+            when(sessionHandler1.sessionId()).thenReturn(SESSION_ID_1);
+
+            when(sessionHandler2.playerId()).thenReturn(PLAYER_ID);
+            when(sessionHandler2.sessionId()).thenReturn(SESSION_ID_2);
+
+            messageBroker.registerSession(sessionHandler1);
+            messageBroker.registerSession(sessionHandler2);
+        }
+
+        @Test
+        void testAllMessage() {
+            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.all(),
+                                                                 Map.of("command", new StringNode(COMMAND)));
+
+            messageBroker.handleOutboundMessage(message);
+
+            ArgumentCaptor<Message.Passthrough> messageCaptor = captor();
+            verify(sessionHandler1).sendMessage(messageCaptor.capture());
+
+            Message.Passthrough sentMessage1 = messageCaptor.getValue();
+            assertEquals(message.message(), sentMessage1);
+
+            verify(sessionHandler2).sendMessage(messageCaptor.capture());
+
+            Message.Passthrough sentMessage2 = messageCaptor.getValue();
+            assertEquals(message.message(), sentMessage2);
+        }
+
+        @Test
+        void testPlayerMessage() {
+            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.player(PLAYER_ID),
+                                                                 Map.of("command", new StringNode(COMMAND)));
+
+            messageBroker.handleOutboundMessage(message);
+
+            ArgumentCaptor<Message.Passthrough> messageCaptor = captor();
+            verify(sessionHandler1).sendMessage(messageCaptor.capture());
+
+            Message.Passthrough sentMessage1 = messageCaptor.getValue();
+            assertEquals(message.message(), sentMessage1);
+
+            verify(sessionHandler2).sendMessage(messageCaptor.capture());
+
+            Message.Passthrough sentMessage2 = messageCaptor.getValue();
+            assertEquals(message.message(), sentMessage2);
+        }
+
+        @Test
+        void testSessionMessage() {
+            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.session(SESSION_ID_1),
+                                                                 Map.of("command", new StringNode(COMMAND)));
+
+            messageBroker.handleOutboundMessage(message);
+
+            ArgumentCaptor<Message.Passthrough> messageCaptor = captor();
+            verify(sessionHandler1).sendMessage(messageCaptor.capture());
+
+            Message.Passthrough sentMessage = messageCaptor.getValue();
+            assertEquals(message.message(), sentMessage);
+
+            verify(sessionHandler2, never()).sendMessage(any());
+        }
+
+        @Test
+        void testDifferentPlayerMessage() {
+            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.player(0),
+                                                                 Map.of("command", new StringNode(COMMAND)));
+
+            messageBroker.handleOutboundMessage(message);
+
+            verify(sessionHandler1, never()).sendMessage(any());
+            verify(sessionHandler2, never()).sendMessage(any());
+        }
+
+        @Test
+        void testDifferentSessionMessage() {
+            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.session(0),
+                                                                 Map.of("command", new StringNode(COMMAND)));
+
+            messageBroker.handleOutboundMessage(message);
+
+            verify(sessionHandler1, never()).sendMessage(any());
+            verify(sessionHandler2, never()).sendMessage(any());
+        }
+
+        @Test
+        void testKickMessage() {
+            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.player(PLAYER_ID),
+                                                                 Map.of("command", new StringNode("notice"), "style",
+                                                                        new StringNode("kick")));
+
+            messageBroker.handleOutboundMessage(message);
+
+            ArgumentCaptor<Message.Passthrough> messageCaptor = captor();
+            verify(sessionHandler1).sendMessage(messageCaptor.capture());
+
+            Message.Passthrough sentMessage1 = messageCaptor.getValue();
+            assertEquals(message.message(), sentMessage1);
+
+            verify(sessionHandler1).close();
+
+            verify(sessionHandler2).sendMessage(messageCaptor.capture());
+
+            Message.Passthrough sentMessage2 = messageCaptor.getValue();
+            assertEquals(message.message(), sentMessage2);
+
+            verify(sessionHandler2).close();
+        }
+
+        @Test
+        void testUnregisterSession() {
+            messageBroker.unregisterSession(sessionHandler1);
+
+            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.all(),
+                                                                 Map.of("command", new StringNode(COMMAND)));
+
+            messageBroker.handleOutboundMessage(message);
+
+            verify(sessionHandler1, never()).sendMessage(any());
+        }
+
+        @Test
+        void testDuplicateSessionRegistered() {
+            messageBroker.unregisterSession(sessionHandler2);
+
+            when(sessionHandler2.sessionId()).thenReturn(SESSION_ID_1);
+
+            assertThrows(IllegalStateException.class, () -> messageBroker.registerSession(sessionHandler2));
+        }
+
+        private OutboundLobbyMessage createOutboundMessage(OutboundTarget target, Map<String, ? extends JsonNode> properties) {
+            ObjectNode node = JsonNodeFactory.instance.objectNode();
+            node.setAll(properties);
+            Message.Passthrough message = Message.Passthrough.of(node);
+            return new OutboundLobbyMessage(target, message);
+        }
+
+    }
+}

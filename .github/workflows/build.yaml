@@ -1,0 +1,43 @@
+name: Build
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+
+      - name: Get tag or branch
+        id: get_tag_or_branch
+        run: |
+          if echo "$GITHUB_REF" | grep -Eq '^refs/tags/.*'; then
+            echo "TAG_OR_BRANCH=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "TAG_OR_BRANCH=${GITHUB_REF#refs/heads/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Gradle test
+        if: github.ref != 'refs/heads/main' && ! startsWith(github.ref, 'refs/tags')
+        env:
+          GRADLE_CLI_OPTS: "-Dversion=${{steps.get_tag_or_branch.outputs.TAG_OR_BRANCH}} -Dquarkus.container-image.builder=docker"
+        run: "chmod +x ./gradlew && ./gradlew ${GRADLE_CLI_OPTS} build"
+
+      - name: Login to DockerHub
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags')
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker images
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags')
+        env:
+          TAG_OR_BRANCH: ${{steps.get_tag_or_branch.outputs.TAG_OR_BRANCH}}
+          GRADLE_CLI_OPTS: "-Dquarkus.container-image.tag=${{steps.get_tag_or_branch.outputs.TAG_OR_BRANCH}} -Dversion=${{steps.get_tag_or_branch.outputs.TAG_OR_BRANCH}} -Dquarkus.container-image.push=true -Dquarkus.container-image.build=true -Dquarkus.container-image.builder=docker -Dquarkus.container-image.group=faforever"
+        run: "chmod +x ./gradlew && ./gradlew ${GRADLE_CLI_OPTS} build"

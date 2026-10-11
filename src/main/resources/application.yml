@@ -1,0 +1,93 @@
+quarkus:
+  log:
+    level: INFO
+    console:
+      format: "%d{yyyy-MM-dd HH:mm:ss,SSS} %-5p [%c] (%t) %s %X%e%n"
+  devservices:
+    enabled: false
+  application:
+    name: faf-message-broker
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+  datasource:
+    db-kind: postgresql
+    username: ${DATABASE_USER:faf-message-broker}
+    password: ${DATABASE_PASS:banana}
+    jdbc:
+      url: jdbc:postgresql://${DATABASE_HOST:localhost}:${DATABASE_PORT:5432}/${DATABASE_NAME:faf-messages}?ssl=false}
+  flyway:
+    migrate-at-start: true
+  http:
+    port: 8003
+    host-validation:
+      allowed-hosts: ${ALLOWED_HOST:ws.faforever.localhost,localhost}
+  rest-client:
+    policy-server:
+      url: ${POLICY_SERVER_URL:http://localhost:8097}
+
+faf:
+  use-policy-server: ${USE_POLICY_SERVER:false}
+
+mp:
+  messaging:
+    incoming:
+      lobby-outbound:
+        connector: smallrye-rabbitmq
+        virtual-host: ${RABBITMQ_VHOST:/faf-core}
+        queue:
+          durable: true
+      lobby-schema-registration:
+        connector: smallrye-rabbitmq
+        virtual-host: ${RABBITMQ_VHOST:/faf-core}
+        queue:
+          durable: true
+    outgoing:
+      lobby-inbound:
+        connector: smallrye-rabbitmq
+        virtual-host: ${RABBITMQ_VHOST:/faf-core}
+  jwt:
+    verify:
+      issuer: ${HYDRA_TOKEN_ISSUER:http://ory-hydra:4444}
+      key-format: JWKS
+      publickey:
+        location: ${HYDRA_JWKS_URL:http://localhost:4444/.well-known/jwks.json}
+
+rabbitmq-host: ${RABBITMQ_HOST:localhost}
+rabbitmq-port: ${RABBITMQ_PORT:5672}
+rabbitmq-username: ${RABBITMQ_USER:faf-message-broker}
+rabbitmq-password: ${RABBITMQ_PASSWORD:banana}
+
+"%test":
+  quarkus:
+    scheduler:
+      enabled: false
+    log:
+      console:
+        json:
+          enabled: false
+      category:
+        "com.faforever":
+          level: DEBUG
+        "io.quarkus.websockets.next.traffic":
+          level: DEBUG
+
+"%dev":
+  quarkus:
+    live-reload:
+      instrumentation: true
+    log:
+      console:
+        json:
+          enabled: false
+      category:
+        "com.faforever":
+          level: DEBUG
+        "io.quarkus.websockets.next.traffic":
+          level: DEBUG
+    websockets-next:
+      server:
+        traffic-logging:
+          enabled: true
+    hibernate-orm:
+      log:
+        sql: true
