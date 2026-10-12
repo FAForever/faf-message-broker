@@ -23,7 +23,7 @@ public class LobbyCommandSchemaRepository implements PanacheRepositoryBase<Lobby
             };
             String command = lobbyCommandSchema.getId().command();
             ObjectNode schema = lobbyCommandSchema.getSchema();
-            return new LobbySchemaDetails(command, direction, schema);
+            return new LobbySchemaDetails(command, direction, schema, lobbyCommandSchema.getRoute());
         }).collect(Collectors.toSet());
     }
 
@@ -38,7 +38,7 @@ public class LobbyCommandSchemaRepository implements PanacheRepositoryBase<Lobby
         };
         LobbyCommandSchema.Id id = new LobbyCommandSchema.Id(command, direction);
 
-        getEntityManager().merge(new LobbyCommandSchema(id, jsonSchema));
+        getEntityManager().merge(new LobbyCommandSchema(id, jsonSchema, lobbySchemaDetails.route()));
     }
 
 }

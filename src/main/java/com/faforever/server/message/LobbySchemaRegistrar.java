@@ -88,7 +88,8 @@ public class LobbySchemaRegistrar {
 
         identifierMap.forEach((messageClass, command) -> {
             ObjectNode schemaNode = generator.generateSchema(messageClass);
-            messageBroker.handleLobbySchemaRegistration(new LobbySchemaDetails(command, direction, schemaNode));
+            messageBroker.handleLobbySchemaRegistration(new LobbySchemaDetails(command, direction, schemaNode,
+                                                                               "connection"));
         });
     }
 }

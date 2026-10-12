@@ -40,6 +40,7 @@ public sealed interface ProtocolMessage permits ProtocolMessage.Client, Protocol
         ) implements Passthrough {}
 
         record GPG(
+                String command,
                 ObjectNode message
         ) implements Passthrough {
             public static final String GAME_PASSTHROUGH_SCHEMA = """
@@ -70,11 +71,12 @@ public sealed interface ProtocolMessage permits ProtocolMessage.Client, Protocol
 
         @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
         static Passthrough of(ObjectNode message) {
+            String command = message.findValue("command").stringValue();
             if (message.findValue("target") instanceof StringNode stringNode &&
                 stringNode.stringValue().equalsIgnoreCase("game")) {
-                return new GPG(message);
+                return new GPG(command, message);
             } else {
-                return new Lobby(message.findValue("command").stringValue(), message);
+                return new Lobby(command, message);
             }
         }
     }

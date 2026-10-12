@@ -1,6 +1,7 @@
 package com.faforever.server.domain;
 
 import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import tools.jackson.databind.node.ObjectNode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
@@ -20,6 +21,7 @@ import org.hibernate.type.SqlTypes;
 @Entity
 @Table(name = "lobby_command_schema")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PACKAGE)
 @Getter
 @Setter
 class LobbyCommandSchema {
@@ -31,8 +33,11 @@ class LobbyCommandSchema {
     @Column(name = "schema")
     private ObjectNode schema;
 
+    @Column(name = "route")
+    private String route;
+
     @Embeddable
-    public record Id(
+    record Id(
             @Column(name = "command")
             String command,
             @Column(name = "direction")
@@ -40,14 +45,9 @@ class LobbyCommandSchema {
             Direction direction
     ) {}
 
-    public LobbyCommandSchema(Id id, ObjectNode schema) {
-        this.id = id;
-        this.schema = schema;
-    }
-
     @RequiredArgsConstructor
     @Getter
-    public enum Direction {
+    enum Direction {
        INBOUND("inbound"), OUTBOUND("outbound");
 
        @EnumeratedValue

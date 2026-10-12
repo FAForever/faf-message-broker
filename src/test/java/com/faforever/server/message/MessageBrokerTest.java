@@ -87,29 +87,17 @@ class MessageBrokerTest {
 
             messageBroker.unregisterSession(sessionHandler);
 
-            ArgumentCaptor<Message<PlayerConnectionDetails>> messageCaptor = captor();
+            ArgumentCaptor<PlayerConnectionDetails> messageCaptor = captor();
 
             verify(playerConnectionEmitter, times(2)).send(messageCaptor.capture());
 
-            List<Message<PlayerConnectionDetails>> allValues = messageCaptor.getAllValues();
+            List<PlayerConnectionDetails> allValues = messageCaptor.getAllValues();
 
-            Message<PlayerConnectionDetails> connectedMessage = allValues.getFirst();
-            assertEquals(new PlayerConnectionDetails(PLAYER_ID, SESSION_ID_1, true), connectedMessage.getPayload());
+            PlayerConnectionDetails connectedMessage = allValues.getFirst();
+            assertEquals(new PlayerConnectionDetails(PLAYER_ID, SESSION_ID_1, true), connectedMessage);
 
-            Metadata connectedMetadata = connectedMessage.getMetadata();
-            assertEquals(2, connectedMetadata.get(OutgoingRabbitMQMetadata.class)
-                                             .orElseThrow()
-                                             .getProperties()
-                                             .getDeliveryMode());
-
-            Message<PlayerConnectionDetails> disconnectedMessage = allValues.getLast();
-            assertEquals(new PlayerConnectionDetails(PLAYER_ID, SESSION_ID_1, false), disconnectedMessage.getPayload());
-
-            Metadata disconnectedMetadata = disconnectedMessage.getMetadata();
-            assertEquals(2, disconnectedMetadata.get(OutgoingRabbitMQMetadata.class)
-                                                .orElseThrow()
-                                                .getProperties()
-                                                .getDeliveryMode());
+            PlayerConnectionDetails disconnectedMessage = allValues.getLast();
+            assertEquals(new PlayerConnectionDetails(PLAYER_ID, SESSION_ID_1, false), disconnectedMessage);
         }
 
     }
@@ -126,7 +114,7 @@ class MessageBrokerTest {
         @Test
         void testInvalidLobbyMessage() {
             when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
-                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA)));
+                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA, "route")));
 
             assertThrows(IllegalArgumentException.class, () -> messageBroker.handleInboundMessage(
                     createInboundMessage(Map.of("command", new StringNode(COMMAND), "key", NullNode.getInstance()))));
@@ -135,7 +123,7 @@ class MessageBrokerTest {
         @Test
         void testValidLobbyMessage() {
             when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
-                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA)));
+                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA, "route")));
 
             InboundPassthroughMessage message = createInboundMessage(Map.of("command", new StringNode(COMMAND)));
             messageBroker.handleInboundMessage(message);
@@ -150,8 +138,7 @@ class MessageBrokerTest {
             Metadata metadata = sentMessage.getMetadata();
             OutgoingRabbitMQMetadata outgoingRabbitMQMetadata = metadata.get(OutgoingRabbitMQMetadata.class)
                                                                         .orElseThrow();
-            assertEquals(2, outgoingRabbitMQMetadata.getProperties().getDeliveryMode());
-            assertEquals(COMMAND, outgoingRabbitMQMetadata.getRoutingKey());
+            assertEquals("lobby.route." + COMMAND, outgoingRabbitMQMetadata.getRoutingKey());
         }
 
         @Test
@@ -177,15 +164,14 @@ class MessageBrokerTest {
             Metadata metadata = sentMessage.getMetadata();
             OutgoingRabbitMQMetadata outgoingRabbitMQMetadata = metadata.get(OutgoingRabbitMQMetadata.class)
                                                                         .orElseThrow();
-            assertEquals(2, outgoingRabbitMQMetadata.getProperties().getDeliveryMode());
-            assertEquals("gpg", outgoingRabbitMQMetadata.getRoutingKey());
+            assertEquals("gpg.Test", outgoingRabbitMQMetadata.getRoutingKey());
         }
 
         @Test
         void testSchemaRegistration() {
             LobbySchemaDetails lobbySchemaDetails = new LobbySchemaDetails(COMMAND,
                                                                            LobbySchemaDetails.Direction.INBOUND,
-                                                                           TEST_SCHEMA);
+                                                                           TEST_SCHEMA, "route");
             messageBroker.handleLobbySchemaRegistration(lobbySchemaDetails);
 
             verify(lobbyCommandSchemaRepository).save(lobbySchemaDetails);
@@ -203,8 +189,7 @@ class MessageBrokerTest {
             Metadata metadata = sentMessage.getMetadata();
             OutgoingRabbitMQMetadata outgoingRabbitMQMetadata = metadata.get(OutgoingRabbitMQMetadata.class)
                                                                         .orElseThrow();
-            assertEquals(2, outgoingRabbitMQMetadata.getProperties().getDeliveryMode());
-            assertEquals(COMMAND, outgoingRabbitMQMetadata.getRoutingKey());
+            assertEquals("lobby.route." + COMMAND, outgoingRabbitMQMetadata.getRoutingKey());
         }
 
         private InboundPassthroughMessage createInboundMessage(Map<String, ? extends JsonNode> properties) {

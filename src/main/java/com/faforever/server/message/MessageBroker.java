@@ -42,7 +42,7 @@ public class MessageBroker {
 
     private final LobbyCommandSchemaRepository lobbyCommandSchemaRepository;
 
-    private final Map<LobbySchemaKey, Schema> lobbySchemas = new ConcurrentHashMap<>();
+    private final Map<LobbySchemaKey, LobbySchemaRoute> lobbySchemas = new ConcurrentHashMap<>();
     private final Schema gameSchema;
 
     private final Map<Long, SessionHandler> sessionHandlerMap = new ConcurrentHashMap<>();
@@ -78,40 +78,47 @@ public class MessageBroker {
                                                            lobbySchemaDetails.direction());
         Schema schema = schemaRegistry.getSchema(SchemaLocation.of(lobbySchemaDetails.command()),
                                                  lobbySchemaDetails.schema());
-        lobbySchemas.put(lobbySchemaKey, schema);
+        lobbySchemas.put(lobbySchemaKey, new LobbySchemaRoute(lobbySchemaDetails.route(), schema));
     }
 
     void handleInboundMessage(InboundPassthroughMessage inboundLobbyMessage) {
         ProtocolMessage.Passthrough passthrough = inboundLobbyMessage.message();
         switch (passthrough) {
             case ProtocolMessage.Passthrough.Lobby lobbyPassthrough -> {
-                validateLobbyPassthrough(lobbyPassthrough);
-                final OutgoingRabbitMQMetadata metadata = OutgoingRabbitMQMetadata.builder().withRoutingKey(
-                        lobbyPassthrough.command()).withDeliveryMode(2).build();
+                String route = validateLobbyPassthrough(lobbyPassthrough);
+                String routingKey = "lobby." + route + "." + lobbyPassthrough.command();
+                final OutgoingRabbitMQMetadata metadata = OutgoingRabbitMQMetadata.builder()
+                                                                                  .withRoutingKey(routingKey)
+                                                                                  .build();
                 lobbyMessageEmitter.send(Message.of(inboundLobbyMessage, Metadata.of(metadata)));
             }
             case ProtocolMessage.Passthrough.GPG gpgPassthrough -> {
                 validateGPGPassthrough(gpgPassthrough);
+                String routingKey = "gpg." + gpgPassthrough.command();
                 final OutgoingRabbitMQMetadata metadata = OutgoingRabbitMQMetadata.builder()
-                                                                                  .withRoutingKey("gpg")
-                                                                                  .withDeliveryMode(2)
+                                                                                  .withRoutingKey(routingKey)
                                                                                   .build();
                 lobbyMessageEmitter.send(Message.of(inboundLobbyMessage, Metadata.of(metadata)));
             }
         }
     }
 
-    private void validateLobbyPassthrough(ProtocolMessage.Passthrough.Lobby lobbyPassthrough) {
+    private String validateLobbyPassthrough(ProtocolMessage.Passthrough.Lobby lobbyPassthrough) {
         String command = lobbyPassthrough.command();
-        Schema schema = lobbySchemas.get(new LobbySchemaKey(command, LobbySchemaDetails.Direction.INBOUND));
-
-        if (schema == null) {
+        LobbySchemaRoute lobbySchemaRoute = lobbySchemas.get(
+                new LobbySchemaKey(command, LobbySchemaDetails.Direction.INBOUND));
+        if (lobbySchemaRoute == null) {
             throw new IllegalArgumentException("Unknown message type");
         }
+
+        Schema schema = lobbySchemaRoute.schema();
+
         List<Error> errors = schema.validate(lobbyPassthrough.message());
         if (!errors.isEmpty()) {
             throw new IllegalArgumentException("Invalid message");
         }
+
+        return lobbySchemaRoute.route();
     }
 
     private void validateGPGPassthrough(ProtocolMessage.Passthrough.GPG gpgPassthrough) {
@@ -173,15 +180,13 @@ public class MessageBroker {
         }
 
         playerSessionMap.computeIfAbsent(playerId, _ -> ConcurrentHashMap.newKeySet()).add(sessionId);
-        playerConnectionEmitter.send(Message.of(new PlayerConnectionDetails(playerId, sessionId, true), Metadata.of(
-                OutgoingRabbitMQMetadata.builder().withDeliveryMode(2).build())));
+        playerConnectionEmitter.send(new PlayerConnectionDetails(playerId, sessionId, true));
     }
 
     void unregisterSession(SessionHandler sessionHandler) {
         int playerId = sessionHandler.playerId();
         long sessionId = sessionHandler.sessionId();
-        playerConnectionEmitter.send(Message.of(new PlayerConnectionDetails(playerId, sessionId, false), Metadata.of(
-                OutgoingRabbitMQMetadata.builder().withDeliveryMode(2).build())));
+        playerConnectionEmitter.send(new PlayerConnectionDetails(playerId, sessionId, false));
 
         if (!sessionHandlerMap.remove(sessionId, sessionHandler)) {
             LOG.warn("Session controller not associated with session");
@@ -214,5 +219,10 @@ public class MessageBroker {
     private record LobbySchemaKey(
             String command,
             LobbySchemaDetails.Direction direction
+    ) {}
+
+    private record LobbySchemaRoute(
+            String route,
+            Schema schema
     ) {}
 }
