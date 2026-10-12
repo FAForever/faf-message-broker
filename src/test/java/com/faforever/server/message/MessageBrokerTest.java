@@ -35,6 +35,7 @@ import static org.mockito.ArgumentCaptor.captor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -58,7 +59,6 @@ class MessageBrokerTest {
                                                 }
                                                 """;
     private static final ObjectNode TEST_SCHEMA = (ObjectNode) new JsonMapper().readTree(SCHEMA_STRING);
-    ;
 
     @Inject
     MessageBroker messageBroker;
@@ -85,11 +85,15 @@ class MessageBrokerTest {
         void testRegistration() {
             messageBroker.registerSession(sessionHandler);
 
+            messageBroker.unregisterSession(sessionHandler);
+
             ArgumentCaptor<Message<PlayerConnectionDetails>> messageCaptor = captor();
 
-            verify(playerConnectionEmitter).send(messageCaptor.capture());
+            verify(playerConnectionEmitter, times(2)).send(messageCaptor.capture());
 
-            Message<PlayerConnectionDetails> connectedMessage = messageCaptor.getValue();
+            List<Message<PlayerConnectionDetails>> allValues = messageCaptor.getAllValues();
+
+            Message<PlayerConnectionDetails> connectedMessage = allValues.getFirst();
             assertEquals(new PlayerConnectionDetails(PLAYER_ID, SESSION_ID_1, true), connectedMessage.getPayload());
 
             Metadata connectedMetadata = connectedMessage.getMetadata();
@@ -98,9 +102,7 @@ class MessageBrokerTest {
                                              .getProperties()
                                              .getDeliveryMode());
 
-            messageBroker.unregisterSession(sessionHandler);
-
-            Message<PlayerConnectionDetails> disconnectedMessage = messageCaptor.getValue();
+            Message<PlayerConnectionDetails> disconnectedMessage = allValues.getLast();
             assertEquals(new PlayerConnectionDetails(PLAYER_ID, SESSION_ID_1, false), disconnectedMessage.getPayload());
 
             Metadata disconnectedMetadata = disconnectedMessage.getMetadata();
