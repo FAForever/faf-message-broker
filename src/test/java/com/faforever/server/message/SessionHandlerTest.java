@@ -2,8 +2,8 @@ package com.faforever.server.message;
 
 import com.faforever.server.connection.TestLobbyConnection;
 import com.faforever.server.endpoint.connection.UserAgent;
-import com.faforever.server.message.client.Message;
-import com.faforever.server.message.service.InboundMessage;
+import com.faforever.server.message.client.ProtocolMessage;
+import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.policy.PolicyClient;
 import com.faforever.server.policy.PolicyContents;
 import tools.jackson.databind.node.JsonNodeFactory;
@@ -56,7 +56,7 @@ class SessionHandlerTest {
 
     @Test
     void testUnauthenticatedClientMessage() {
-        Message.Passthrough message = createPassthroughMessage();
+        ProtocolMessage.Passthrough message = createPassthroughMessage();
 
         assertThrows(IllegalStateException.class, () -> sessionHandler.handleMessage(message));
         verifyNoInteractions(messageBroker);
@@ -69,30 +69,30 @@ class SessionHandlerTest {
 
     @Test
     void testPing() {
-        sessionHandler.handleMessage(new Message.Connection.Ping());
-        assertThat(connection.getSentMessages(), contains(new Message.Connection.Pong()));
+        sessionHandler.handleMessage(new ProtocolMessage.Connection.Ping());
+        assertThat(connection.getSentMessages(), contains(new ProtocolMessage.Connection.Pong()));
     }
 
     @Test
     void testPong() {
-        sessionHandler.handleMessage(new Message.Connection.Pong());
+        sessionHandler.handleMessage(new ProtocolMessage.Connection.Pong());
         assertThat(connection.getSentMessages(), hasSize(0));
     }
 
     @Test
     void testSessionRequest() {
         UserAgent userAgent = new UserAgent("userAgent", "1.0");
-        sessionHandler.handleMessage(new Message.Connection.SessionRequest(userAgent.agent(), userAgent.version()));
+        sessionHandler.handleMessage(new ProtocolMessage.Connection.SessionRequest(userAgent.agent(), userAgent.version()));
         assertThat(connection.getSentMessages(),
-                   contains(new Message.Connection.SessionResponse(sessionHandler.sessionId())));
+                   contains(new ProtocolMessage.Connection.SessionResponse(sessionHandler.sessionId())));
         assertThat(sessionHandler.userAgent(), equalTo(userAgent));
     }
 
     @Test
     void testDuplicateSessionRequest() {
         UserAgent userAgent = new UserAgent("userAgent", "1.0");
-        Message.Connection.SessionRequest message = new Message.Connection.SessionRequest(userAgent.agent(),
-                                                                                          userAgent.version());
+        ProtocolMessage.Connection.SessionRequest message = new ProtocolMessage.Connection.SessionRequest(userAgent.agent(),
+                                                                                                          userAgent.version());
         sessionHandler.handleMessage(message);
         assertDoesNotThrow(() -> sessionHandler.handleMessage(message));
     }
@@ -105,7 +105,7 @@ class SessionHandlerTest {
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
-        sessionHandler.handleMessage(new Message.Connection.AuthenticateRequest("", ""));
+        sessionHandler.handleMessage(new ProtocolMessage.Connection.AuthenticateRequest("", ""));
 
         assertDoesNotThrow(() -> sessionHandler.playerId());
         verify(policyClient).checkPolicy(new PolicyContents(sessionHandler.sessionId(), playerId, ""));
@@ -118,7 +118,7 @@ class SessionHandlerTest {
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
-        sessionHandler.handleMessage(new Message.Connection.AuthenticateRequest("", ""));
+        sessionHandler.handleMessage(new ProtocolMessage.Connection.AuthenticateRequest("", ""));
 
         assertEquals(playerId, sessionHandler.playerId());
         verifyNoInteractions(policyClient);
@@ -131,7 +131,7 @@ class SessionHandlerTest {
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
-        Message.Connection.AuthenticateRequest message = new Message.Connection.AuthenticateRequest("", "");
+        ProtocolMessage.Connection.AuthenticateRequest message = new ProtocolMessage.Connection.AuthenticateRequest("", "");
         sessionHandler.handleMessage(message);
         assertThrows(IllegalStateException.class, () -> sessionHandler.handleMessage(message));
     }
@@ -143,12 +143,12 @@ class SessionHandlerTest {
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
-        sessionHandler.handleMessage(new Message.Connection.AuthenticateRequest("", ""));
+        sessionHandler.handleMessage(new ProtocolMessage.Connection.AuthenticateRequest("", ""));
 
-        Message.Passthrough message = createPassthroughMessage();
+        ProtocolMessage.Passthrough message = createPassthroughMessage();
         sessionHandler.handleMessage(message);
         verify(messageBroker).handleInboundMessage(
-                new InboundMessage(sessionHandler.sessionId(), playerId, message));
+                new InboundPassthroughMessage(sessionHandler.sessionId(), playerId, message));
     }
 
     @Test
@@ -166,7 +166,7 @@ class SessionHandlerTest {
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
-        sessionHandler.handleMessage(new Message.Connection.AuthenticateRequest("", ""));
+        sessionHandler.handleMessage(new ProtocolMessage.Connection.AuthenticateRequest("", ""));
 
 
         sessionHandler.close();
@@ -187,9 +187,9 @@ class SessionHandlerTest {
         assertThrows(IllegalStateException.class, () -> sessionHandler.setConnection(new TestLobbyConnection()));
     }
 
-    private Message.Passthrough createPassthroughMessage() {
+    private ProtocolMessage.Passthrough createPassthroughMessage() {
         ObjectNode node = JsonNodeFactory.instance.objectNode();
         node.put("command", "test");
-        return Message.Passthrough.of(node);
+        return ProtocolMessage.Passthrough.of(node);
     }
 }

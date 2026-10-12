@@ -1,10 +1,9 @@
 package com.faforever.server.message;
 
-import com.faforever.server.message.client.Message;
+import com.faforever.server.message.client.ProtocolMessage;
 import com.faforever.server.message.service.LobbySchemaDetails;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import tools.jackson.databind.node.ObjectNode;
 import com.github.victools.jsonschema.generator.Option;
 import com.github.victools.jsonschema.generator.OptionPreset;
 import com.github.victools.jsonschema.generator.SchemaGenerator;
@@ -18,6 +17,8 @@ import io.quarkus.runtime.Startup;
 import jakarta.enterprise.context.ApplicationScoped;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.Nullable;
+import tools.jackson.databind.PropertyNamingStrategies;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.Arrays;
 import java.util.Map;
@@ -27,14 +28,16 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class LobbySchemaRegistrar {
 
-    private static final JacksonSchemaModule JACKSON_MODULE = new JacksonSchemaModule(JacksonOption.RESPECT_JSONPROPERTY_REQUIRED,
-                                                                                JacksonOption.FLATTENED_ENUMS_FROM_JSONPROPERTY);
+    private static final JacksonSchemaModule JACKSON_MODULE = new JacksonSchemaModule(
+            JacksonOption.RESPECT_JSONPROPERTY_REQUIRED, JacksonOption.FLATTENED_ENUMS_FROM_JSONPROPERTY);
+    private static final PropertyNamingStrategies.SnakeCaseStrategy SNAKE_CASE_STRATEGY = new PropertyNamingStrategies.SnakeCaseStrategy();
+
     private final MessageBroker messageBroker;
 
     @Startup
     void registerSchemas() {
-        registerSchemasUsingTypeInfo(Message.Client.class, LobbySchemaDetails.Direction.INBOUND);
-        registerSchemasUsingTypeInfo(Message.Server.class, LobbySchemaDetails.Direction.OUTBOUND);
+        registerSchemasUsingTypeInfo(ProtocolMessage.Client.class, LobbySchemaDetails.Direction.INBOUND);
+        registerSchemasUsingTypeInfo(ProtocolMessage.Server.class, LobbySchemaDetails.Direction.OUTBOUND);
     }
 
     private void registerSchemasUsingTypeInfo(Class<?> baseMessageClass, LobbySchemaDetails.Direction direction) {
@@ -60,8 +63,13 @@ public class LobbySchemaRegistrar {
 
 
         builder.forFields()
-               .withNullableCheck(fieldScope -> fieldScope.getRawMember().getAnnotatedType().getAnnotation(Nullable.class) != null)
-               .withRequiredCheck(fieldScope -> fieldScope.getRawMember().getAnnotatedType().getAnnotation(Nullable.class) == null);
+               .withPropertyNameOverrideResolver(
+                       fieldScope -> SNAKE_CASE_STRATEGY.nameForField(null, null, fieldScope.getName()))
+               .withNullableCheck(
+                       fieldScope -> fieldScope.getRawMember().getAnnotatedType().getAnnotation(Nullable.class) != null)
+               .withRequiredCheck(
+                       fieldScope -> fieldScope.getRawMember().getAnnotatedType().getAnnotation(Nullable.class) ==
+                                     null);
 
         builder.forTypesInGeneral().withTypeAttributeOverride((objectNode, typeScope, context) -> {
             String command = identifierMap.get(typeScope.getType().getErasedType());

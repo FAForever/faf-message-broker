@@ -3,14 +3,13 @@ package com.faforever.server.message.client;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import com.fasterxml.jackson.annotation.JsonValue;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.node.StringNode;
 
-public sealed interface Message permits Message.Client, Message.Server {
+public sealed interface ProtocolMessage permits ProtocolMessage.Client, ProtocolMessage.Server {
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "command")
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "command", defaultImpl = Passthrough.class, visible = true)
     @JsonSubTypes(
             {
                     @JsonSubTypes.Type(value = Connection.Ping.class, name = "ping"),
@@ -18,7 +17,7 @@ public sealed interface Message permits Message.Client, Message.Server {
                     @JsonSubTypes.Type(value = Connection.SessionResponse.class, name = "session"),
             }
     )
-    sealed interface Server extends Message permits Connection.Server, Passthrough {}
+    sealed interface Server extends ProtocolMessage permits Connection.Server, Passthrough {}
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "command", defaultImpl = Passthrough.class, visible = true)
     @JsonSubTypes(
@@ -29,11 +28,10 @@ public sealed interface Message permits Message.Client, Message.Server {
                     @JsonSubTypes.Type(value = Connection.AuthenticateRequest.class, name = "auth"),
             }
     )
-    sealed interface Client extends Message permits Connection.Client, Passthrough {}
+    sealed interface Client extends ProtocolMessage permits Connection.Client, Passthrough {}
 
     sealed interface Passthrough extends Server, Client {
 
-        @JsonValue
         ObjectNode message();
 
         record Lobby(
@@ -83,9 +81,9 @@ public sealed interface Message permits Message.Client, Message.Server {
 
     sealed interface Connection {
 
-        sealed interface Server extends Connection, Message.Server {}
+        sealed interface Server extends Connection, ProtocolMessage.Server {}
 
-        sealed interface Client extends Connection, Message.Client {}
+        sealed interface Client extends Connection, ProtocolMessage.Client {}
 
         record Ping() implements Server, Client {}
 

@@ -1,16 +1,18 @@
 package com.faforever.server.message;
 
 import com.faforever.server.domain.LobbyCommandSchemaRepository;
-import com.faforever.server.message.client.Message;
-import com.faforever.server.message.service.InboundMessage;
-import com.faforever.server.message.service.OutboundLobbyMessage;
-import com.faforever.server.message.service.OutboundTarget;
+import com.faforever.server.message.client.ProtocolMessage;
+import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.message.service.LobbySchemaDetails;
+import com.faforever.server.message.service.OutboundPassthroughMessage;
+import com.faforever.server.message.service.OutboundTarget;
+import com.faforever.server.message.service.PlayerConnectionDetails;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.component.QuarkusComponentTest;
 import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
+import org.eclipse.microprofile.reactive.messaging.Message;
 import org.eclipse.microprofile.reactive.messaging.Metadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -62,9 +64,53 @@ class MessageBrokerTest {
     MessageBroker messageBroker;
 
     @InjectMock
-    private Emitter<InboundMessage> lobbyMessageEmitter;
+    private Emitter<InboundPassthroughMessage> lobbyMessageEmitter;
+    @InjectMock
+    private Emitter<PlayerConnectionDetails> playerConnectionEmitter;
     @InjectMock
     private LobbyCommandSchemaRepository lobbyCommandSchemaRepository;
+
+    @Nested
+    class Registration {
+
+        private final SessionHandler sessionHandler = mock();
+
+        @BeforeEach
+        void setup() {
+            when(sessionHandler.playerId()).thenReturn(PLAYER_ID);
+            when(sessionHandler.sessionId()).thenReturn(SESSION_ID_1);
+        }
+
+        @Test
+        void testRegistration() {
+            messageBroker.registerSession(sessionHandler);
+
+            ArgumentCaptor<Message<PlayerConnectionDetails>> messageCaptor = captor();
+
+            verify(playerConnectionEmitter).send(messageCaptor.capture());
+
+            Message<PlayerConnectionDetails> connectedMessage = messageCaptor.getValue();
+            assertEquals(new PlayerConnectionDetails(PLAYER_ID, SESSION_ID_1, true), connectedMessage.getPayload());
+
+            Metadata connectedMetadata = connectedMessage.getMetadata();
+            assertEquals(2, connectedMetadata.get(OutgoingRabbitMQMetadata.class)
+                                             .orElseThrow()
+                                             .getProperties()
+                                             .getDeliveryMode());
+
+            messageBroker.unregisterSession(sessionHandler);
+
+            Message<PlayerConnectionDetails> disconnectedMessage = messageCaptor.getValue();
+            assertEquals(new PlayerConnectionDetails(PLAYER_ID, SESSION_ID_1, false), disconnectedMessage.getPayload());
+
+            Metadata disconnectedMetadata = disconnectedMessage.getMetadata();
+            assertEquals(2, disconnectedMetadata.get(OutgoingRabbitMQMetadata.class)
+                                                .orElseThrow()
+                                                .getProperties()
+                                                .getDeliveryMode());
+        }
+
+    }
 
     @Nested
     class Inbound {
@@ -89,14 +135,14 @@ class MessageBrokerTest {
             when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
                     List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA)));
 
-            InboundMessage message = createInboundMessage(Map.of("command", new StringNode(COMMAND)));
+            InboundPassthroughMessage message = createInboundMessage(Map.of("command", new StringNode(COMMAND)));
             messageBroker.handleInboundMessage(message);
 
-            ArgumentCaptor<org.eclipse.microprofile.reactive.messaging.Message<InboundMessage>> messageCaptor = captor();
+            ArgumentCaptor<Message<InboundPassthroughMessage>> messageCaptor = captor();
 
             verify(lobbyMessageEmitter).send(messageCaptor.capture());
 
-            org.eclipse.microprofile.reactive.messaging.Message<InboundMessage> sentMessage = messageCaptor.getValue();
+            Message<InboundPassthroughMessage> sentMessage = messageCaptor.getValue();
             assertEquals(message, sentMessage.getPayload());
 
             Metadata metadata = sentMessage.getMetadata();
@@ -114,14 +160,16 @@ class MessageBrokerTest {
 
         @Test
         void testValidGameMessage() {
-            InboundMessage message = createInboundMessage(Map.of("command", new StringNode("Test"), "target", new StringNode("game"), "args", new ArrayNode(JsonNodeFactory.instance)));
+            InboundPassthroughMessage message = createInboundMessage(
+                    Map.of("command", new StringNode("Test"), "target", new StringNode("game"), "args",
+                           new ArrayNode(JsonNodeFactory.instance)));
             messageBroker.handleInboundMessage(message);
 
-            ArgumentCaptor<org.eclipse.microprofile.reactive.messaging.Message<InboundMessage>> messageCaptor = captor();
+            ArgumentCaptor<Message<InboundPassthroughMessage>> messageCaptor = captor();
 
             verify(lobbyMessageEmitter).send(messageCaptor.capture());
 
-            org.eclipse.microprofile.reactive.messaging.Message<InboundMessage> sentMessage = messageCaptor.getValue();
+            Message<InboundPassthroughMessage> sentMessage = messageCaptor.getValue();
             assertEquals(message, sentMessage.getPayload());
 
             Metadata metadata = sentMessage.getMetadata();
@@ -140,14 +188,14 @@ class MessageBrokerTest {
 
             verify(lobbyCommandSchemaRepository).save(lobbySchemaDetails);
 
-            InboundMessage message = createInboundMessage(Map.of("command", new StringNode(COMMAND)));
+            InboundPassthroughMessage message = createInboundMessage(Map.of("command", new StringNode(COMMAND)));
             messageBroker.handleInboundMessage(message);
 
-            ArgumentCaptor<org.eclipse.microprofile.reactive.messaging.Message<InboundMessage>> messageCaptor = captor();
+            ArgumentCaptor<Message<InboundPassthroughMessage>> messageCaptor = captor();
 
             verify(lobbyMessageEmitter).send(messageCaptor.capture());
 
-            org.eclipse.microprofile.reactive.messaging.Message<InboundMessage> sentMessage = messageCaptor.getValue();
+            Message<InboundPassthroughMessage> sentMessage = messageCaptor.getValue();
             assertEquals(message, sentMessage.getPayload());
 
             Metadata metadata = sentMessage.getMetadata();
@@ -157,11 +205,11 @@ class MessageBrokerTest {
             assertEquals(COMMAND, outgoingRabbitMQMetadata.getRoutingKey());
         }
 
-        private InboundMessage createInboundMessage(Map<String, ? extends JsonNode> properties) {
+        private InboundPassthroughMessage createInboundMessage(Map<String, ? extends JsonNode> properties) {
             ObjectNode node = JsonNodeFactory.instance.objectNode();
             node.setAll(properties);
-            Message.Passthrough message = Message.Passthrough.of(node);
-            return new InboundMessage(SESSION_ID_1, PLAYER_ID, message);
+            ProtocolMessage.Passthrough message = ProtocolMessage.Passthrough.of(node);
+            return new InboundPassthroughMessage(SESSION_ID_1, PLAYER_ID, message);
         }
     }
 
@@ -185,53 +233,53 @@ class MessageBrokerTest {
 
         @Test
         void testAllMessage() {
-            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.all(),
-                                                                 Map.of("command", new StringNode(COMMAND)));
+            OutboundPassthroughMessage message = createOutboundMessage(OutboundTarget.all(),
+                                                                       Map.of("command", new StringNode(COMMAND)));
 
             messageBroker.handleOutboundMessage(message);
 
-            ArgumentCaptor<Message.Passthrough> messageCaptor = captor();
+            ArgumentCaptor<ProtocolMessage.Passthrough> messageCaptor = captor();
             verify(sessionHandler1).sendMessage(messageCaptor.capture());
 
-            Message.Passthrough sentMessage1 = messageCaptor.getValue();
+            ProtocolMessage.Passthrough sentMessage1 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage1);
 
             verify(sessionHandler2).sendMessage(messageCaptor.capture());
 
-            Message.Passthrough sentMessage2 = messageCaptor.getValue();
+            ProtocolMessage.Passthrough sentMessage2 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage2);
         }
 
         @Test
         void testPlayerMessage() {
-            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.player(PLAYER_ID),
-                                                                 Map.of("command", new StringNode(COMMAND)));
+            OutboundPassthroughMessage message = createOutboundMessage(OutboundTarget.player(PLAYER_ID),
+                                                                       Map.of("command", new StringNode(COMMAND)));
 
             messageBroker.handleOutboundMessage(message);
 
-            ArgumentCaptor<Message.Passthrough> messageCaptor = captor();
+            ArgumentCaptor<ProtocolMessage.Passthrough> messageCaptor = captor();
             verify(sessionHandler1).sendMessage(messageCaptor.capture());
 
-            Message.Passthrough sentMessage1 = messageCaptor.getValue();
+            ProtocolMessage.Passthrough sentMessage1 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage1);
 
             verify(sessionHandler2).sendMessage(messageCaptor.capture());
 
-            Message.Passthrough sentMessage2 = messageCaptor.getValue();
+            ProtocolMessage.Passthrough sentMessage2 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage2);
         }
 
         @Test
         void testSessionMessage() {
-            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.session(SESSION_ID_1),
-                                                                 Map.of("command", new StringNode(COMMAND)));
+            OutboundPassthroughMessage message = createOutboundMessage(OutboundTarget.session(SESSION_ID_1),
+                                                                       Map.of("command", new StringNode(COMMAND)));
 
             messageBroker.handleOutboundMessage(message);
 
-            ArgumentCaptor<Message.Passthrough> messageCaptor = captor();
+            ArgumentCaptor<ProtocolMessage.Passthrough> messageCaptor = captor();
             verify(sessionHandler1).sendMessage(messageCaptor.capture());
 
-            Message.Passthrough sentMessage = messageCaptor.getValue();
+            ProtocolMessage.Passthrough sentMessage = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage);
 
             verify(sessionHandler2, never()).sendMessage(any());
@@ -239,8 +287,8 @@ class MessageBrokerTest {
 
         @Test
         void testDifferentPlayerMessage() {
-            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.player(0),
-                                                                 Map.of("command", new StringNode(COMMAND)));
+            OutboundPassthroughMessage message = createOutboundMessage(OutboundTarget.player(0),
+                                                                       Map.of("command", new StringNode(COMMAND)));
 
             messageBroker.handleOutboundMessage(message);
 
@@ -250,8 +298,8 @@ class MessageBrokerTest {
 
         @Test
         void testDifferentSessionMessage() {
-            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.session(0),
-                                                                 Map.of("command", new StringNode(COMMAND)));
+            OutboundPassthroughMessage message = createOutboundMessage(OutboundTarget.session(0),
+                                                                       Map.of("command", new StringNode(COMMAND)));
 
             messageBroker.handleOutboundMessage(message);
 
@@ -261,23 +309,23 @@ class MessageBrokerTest {
 
         @Test
         void testKickMessage() {
-            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.player(PLAYER_ID),
-                                                                 Map.of("command", new StringNode("notice"), "style",
+            OutboundPassthroughMessage message = createOutboundMessage(OutboundTarget.player(PLAYER_ID),
+                                                                       Map.of("command", new StringNode("notice"), "style",
                                                                         new StringNode("kick")));
 
             messageBroker.handleOutboundMessage(message);
 
-            ArgumentCaptor<Message.Passthrough> messageCaptor = captor();
+            ArgumentCaptor<ProtocolMessage.Passthrough> messageCaptor = captor();
             verify(sessionHandler1).sendMessage(messageCaptor.capture());
 
-            Message.Passthrough sentMessage1 = messageCaptor.getValue();
+            ProtocolMessage.Passthrough sentMessage1 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage1);
 
             verify(sessionHandler1).close();
 
             verify(sessionHandler2).sendMessage(messageCaptor.capture());
 
-            Message.Passthrough sentMessage2 = messageCaptor.getValue();
+            ProtocolMessage.Passthrough sentMessage2 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage2);
 
             verify(sessionHandler2).close();
@@ -287,8 +335,8 @@ class MessageBrokerTest {
         void testUnregisterSession() {
             messageBroker.unregisterSession(sessionHandler1);
 
-            OutboundLobbyMessage message = createOutboundMessage(OutboundTarget.all(),
-                                                                 Map.of("command", new StringNode(COMMAND)));
+            OutboundPassthroughMessage message = createOutboundMessage(OutboundTarget.all(),
+                                                                       Map.of("command", new StringNode(COMMAND)));
 
             messageBroker.handleOutboundMessage(message);
 
@@ -304,11 +352,11 @@ class MessageBrokerTest {
             assertThrows(IllegalStateException.class, () -> messageBroker.registerSession(sessionHandler2));
         }
 
-        private OutboundLobbyMessage createOutboundMessage(OutboundTarget target, Map<String, ? extends JsonNode> properties) {
+        private OutboundPassthroughMessage createOutboundMessage(OutboundTarget target, Map<String, ? extends JsonNode> properties) {
             ObjectNode node = JsonNodeFactory.instance.objectNode();
             node.setAll(properties);
-            Message.Passthrough message = Message.Passthrough.of(node);
-            return new OutboundLobbyMessage(target, message);
+            ProtocolMessage.Passthrough message = ProtocolMessage.Passthrough.of(node);
+            return new OutboundPassthroughMessage(target, message);
         }
 
     }

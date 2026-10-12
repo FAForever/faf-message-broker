@@ -1,11 +1,11 @@
 package com.faforever.server.endpoint.connection;
 
 
-import com.faforever.server.message.client.Message;
+import com.faforever.server.message.client.ProtocolMessage;
 
 public interface LobbyConnection {
 
-    void sendAndAwait(Message.Server message);
+    void sendAndAwait(ProtocolMessage.Server message);
 
     void close();
 

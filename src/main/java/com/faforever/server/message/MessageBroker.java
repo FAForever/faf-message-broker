@@ -1,11 +1,12 @@
 package com.faforever.server.message;
 
 import com.faforever.server.domain.LobbyCommandSchemaRepository;
-import com.faforever.server.message.client.Message;
-import com.faforever.server.message.service.InboundMessage;
+import com.faforever.server.message.client.ProtocolMessage;
+import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.message.service.LobbySchemaDetails;
-import com.faforever.server.message.service.OutboundLobbyMessage;
+import com.faforever.server.message.service.OutboundPassthroughMessage;
 import com.faforever.server.message.service.OutboundTarget;
+import com.faforever.server.message.service.PlayerConnectionDetails;
 import com.faforever.server.utils.NoThrowCloseable;
 import com.networknt.schema.Error;
 import com.networknt.schema.InputFormat;
@@ -13,6 +14,7 @@ import com.networknt.schema.Schema;
 import com.networknt.schema.SchemaLocation;
 import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
+import io.smallrye.common.annotation.RunOnVirtualThread;
 import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -20,6 +22,7 @@ import lombok.extern.jbosslog.JBossLog;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
+import org.eclipse.microprofile.reactive.messaging.Message;
 import org.eclipse.microprofile.reactive.messaging.Metadata;
 import org.jboss.logging.MDC;
 import tools.jackson.databind.node.ObjectNode;
@@ -34,7 +37,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @ApplicationScoped
 public class MessageBroker {
 
-    private final Emitter<InboundMessage> lobbyMessageEmitter;
+    private final Emitter<InboundPassthroughMessage> lobbyMessageEmitter;
+    private final Emitter<PlayerConnectionDetails> playerConnectionEmitter;
 
     private final LobbyCommandSchemaRepository lobbyCommandSchemaRepository;
 
@@ -46,10 +50,15 @@ public class MessageBroker {
 
     private final SchemaRegistry schemaRegistry = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12);
 
-    public MessageBroker(@Channel("lobby-inbound") Emitter<InboundMessage> lobbyMessageEmitter, LobbyCommandSchemaRepository lobbyCommandSchemaRepository) {
+    public MessageBroker(@Channel("lobby-inbound") Emitter<InboundPassthroughMessage> lobbyMessageEmitter, @Channel(
+            "player-connection"
+    ) Emitter<PlayerConnectionDetails> playerConnectionEmitter, LobbyCommandSchemaRepository lobbyCommandSchemaRepository) {
         this.lobbyMessageEmitter = lobbyMessageEmitter;
+        this.playerConnectionEmitter = playerConnectionEmitter;
         this.lobbyCommandSchemaRepository = lobbyCommandSchemaRepository;
-        gameSchema = schemaRegistry.getSchema(SchemaLocation.of("gpg"), Message.Passthrough.GPG.GAME_PASSTHROUGH_SCHEMA, InputFormat.JSON);
+        gameSchema = schemaRegistry.getSchema(SchemaLocation.of("gpg"),
+                                              ProtocolMessage.Passthrough.GPG.GAME_PASSTHROUGH_SCHEMA,
+                                              InputFormat.JSON);
     }
 
     @PostConstruct
@@ -58,6 +67,7 @@ public class MessageBroker {
     }
 
     @Incoming("lobby-schema-registration")
+    @RunOnVirtualThread
     void handleLobbySchemaRegistration(LobbySchemaDetails lobbySchemaDetails) {
         lobbyCommandSchemaRepository.save(lobbySchemaDetails);
         registerSchema(lobbySchemaDetails);
@@ -71,31 +81,27 @@ public class MessageBroker {
         lobbySchemas.put(lobbySchemaKey, schema);
     }
 
-    void handleInboundMessage(InboundMessage inboundLobbyMessage) {
-        Message.Passthrough passthrough = inboundLobbyMessage.message();
+    void handleInboundMessage(InboundPassthroughMessage inboundLobbyMessage) {
+        ProtocolMessage.Passthrough passthrough = inboundLobbyMessage.message();
         switch (passthrough) {
-            case Message.Passthrough.Lobby lobbyPassthrough -> {
+            case ProtocolMessage.Passthrough.Lobby lobbyPassthrough -> {
                 validateLobbyPassthrough(lobbyPassthrough);
-                final OutgoingRabbitMQMetadata metadata = OutgoingRabbitMQMetadata.builder()
-                                                                                  .withRoutingKey(lobbyPassthrough.command())
-                                                                                  .withDeliveryMode(2)
-                                                                                  .build();
-                lobbyMessageEmitter.send(
-                        org.eclipse.microprofile.reactive.messaging.Message.of(inboundLobbyMessage, Metadata.of(metadata)));
+                final OutgoingRabbitMQMetadata metadata = OutgoingRabbitMQMetadata.builder().withRoutingKey(
+                        lobbyPassthrough.command()).withDeliveryMode(2).build();
+                lobbyMessageEmitter.send(Message.of(inboundLobbyMessage, Metadata.of(metadata)));
             }
-            case Message.Passthrough.GPG gpgPassthrough -> {
+            case ProtocolMessage.Passthrough.GPG gpgPassthrough -> {
                 validateGPGPassthrough(gpgPassthrough);
                 final OutgoingRabbitMQMetadata metadata = OutgoingRabbitMQMetadata.builder()
                                                                                   .withRoutingKey("gpg")
                                                                                   .withDeliveryMode(2)
                                                                                   .build();
-                lobbyMessageEmitter.send(
-                        org.eclipse.microprofile.reactive.messaging.Message.of(inboundLobbyMessage, Metadata.of(metadata)));
+                lobbyMessageEmitter.send(Message.of(inboundLobbyMessage, Metadata.of(metadata)));
             }
         }
     }
 
-    private void validateLobbyPassthrough(Message.Passthrough.Lobby lobbyPassthrough) {
+    private void validateLobbyPassthrough(ProtocolMessage.Passthrough.Lobby lobbyPassthrough) {
         String command = lobbyPassthrough.command();
         Schema schema = lobbySchemas.get(new LobbySchemaKey(command, LobbySchemaDetails.Direction.INBOUND));
 
@@ -108,7 +114,7 @@ public class MessageBroker {
         }
     }
 
-    private void validateGPGPassthrough(Message.Passthrough.GPG gpgPassthrough) {
+    private void validateGPGPassthrough(ProtocolMessage.Passthrough.GPG gpgPassthrough) {
         List<Error> errors = gameSchema.validate(gpgPassthrough.message());
         if (!errors.isEmpty()) {
             throw new IllegalArgumentException("Invalid message");
@@ -116,10 +122,11 @@ public class MessageBroker {
     }
 
     @Incoming("lobby-outbound")
-    void handleOutboundMessage(OutboundLobbyMessage outboundLobbyMessage) {
-        try (NoThrowCloseable _ = populateMDC(outboundLobbyMessage)) {
-            Message.Passthrough message = outboundLobbyMessage.message();
-            switch (outboundLobbyMessage.target()) {
+    @RunOnVirtualThread
+    void handleOutboundMessage(OutboundPassthroughMessage outboundPassthroughMessage) {
+        try (NoThrowCloseable _ = populateMDC(outboundPassthroughMessage)) {
+            ProtocolMessage.Passthrough message = outboundPassthroughMessage.message();
+            switch (outboundPassthroughMessage.target()) {
                 case OutboundTarget.Session(long sessionId) -> sendMessageToSession(sessionId, message);
                 case OutboundTarget.Player(int playerId) -> sendMessageToPlayer(playerId, message);
                 case OutboundTarget.All() -> sendMessageToAll(message);
@@ -127,11 +134,11 @@ public class MessageBroker {
         }
     }
 
-    private void sendMessageToAll(Message.Passthrough message) {
+    private void sendMessageToAll(ProtocolMessage.Passthrough message) {
         sessionHandlerMap.keySet().forEach(sessionId -> sendMessageToSession(sessionId, message));
     }
 
-    private void sendMessageToPlayer(int playerId, Message.Passthrough message) {
+    private void sendMessageToPlayer(int playerId, ProtocolMessage.Passthrough message) {
         Set<Long> playerSessions = playerSessionMap.getOrDefault(playerId, Set.of());
         if (playerSessions.isEmpty()) {
             LOG.warn("No active sessions for player");
@@ -141,7 +148,7 @@ public class MessageBroker {
         playerSessions.forEach(sessionId -> sendMessageToSession(sessionId, message));
     }
 
-    private void sendMessageToSession(long sessionId, Message.Passthrough message) {
+    private void sendMessageToSession(long sessionId, ProtocolMessage.Passthrough message) {
         SessionHandler sessionHandler = sessionHandlerMap.get(sessionId);
         if (sessionHandler == null) {
             LOG.warn("No active session for session id");
@@ -149,7 +156,7 @@ public class MessageBroker {
         }
 
         sessionHandler.sendMessage(message);
-        if (message instanceof Message.Passthrough.Lobby(String command, ObjectNode payload) &&
+        if (message instanceof ProtocolMessage.Passthrough.Lobby(String command, ObjectNode payload) &&
             "notice".equals(command) &&
             payload.findValue("style") instanceof StringNode value &&
             value.stringValue().equalsIgnoreCase("kick")) {
@@ -166,15 +173,22 @@ public class MessageBroker {
         }
 
         playerSessionMap.computeIfAbsent(playerId, _ -> ConcurrentHashMap.newKeySet()).add(sessionId);
+        playerConnectionEmitter.send(Message.of(new PlayerConnectionDetails(playerId, sessionId, true), Metadata.of(
+                OutgoingRabbitMQMetadata.builder().withDeliveryMode(2).build())));
     }
 
     void unregisterSession(SessionHandler sessionHandler) {
-        if (!sessionHandlerMap.remove(sessionHandler.sessionId(), sessionHandler)) {
+        int playerId = sessionHandler.playerId();
+        long sessionId = sessionHandler.sessionId();
+        playerConnectionEmitter.send(Message.of(new PlayerConnectionDetails(playerId, sessionId, false), Metadata.of(
+                OutgoingRabbitMQMetadata.builder().withDeliveryMode(2).build())));
+
+        if (!sessionHandlerMap.remove(sessionId, sessionHandler)) {
             LOG.warn("Session controller not associated with session");
         }
 
-        playerSessionMap.compute(sessionHandler.playerId(), (_, sessions) -> {
-            if (sessions == null || !sessions.remove(sessionHandler.sessionId())) {
+        playerSessionMap.compute(playerId, (_, sessions) -> {
+            if (sessions == null || !sessions.remove(sessionId)) {
                 LOG.warn("Session controller not associated with player");
                 return null;
             }
@@ -184,8 +198,8 @@ public class MessageBroker {
 
     }
 
-    private NoThrowCloseable populateMDC(OutboundLobbyMessage outboundLobbyMessage) {
-        switch (outboundLobbyMessage.target()) {
+    private NoThrowCloseable populateMDC(OutboundPassthroughMessage outboundPassthroughMessage) {
+        switch (outboundPassthroughMessage.target()) {
             case OutboundTarget.Player(int playerId) -> MDC.put("playerId", playerId);
             case OutboundTarget.Session(long sessionId) -> MDC.put("sessionId", sessionId);
             case OutboundTarget.All() -> {}

@@ -50,8 +50,6 @@ dependencies {
     testImplementation("io.quarkus:quarkus-junit")
     testImplementation("io.quarkus:quarkus-junit-component")
     testImplementation("io.quarkus:quarkus-junit-mockito")
-    testImplementation("io.quarkus:quarkus-panache-mock")
-    testImplementation("io.smallrye.reactive:smallrye-reactive-messaging-in-memory")
     testImplementation("org.hamcrest:hamcrest")
 }
 

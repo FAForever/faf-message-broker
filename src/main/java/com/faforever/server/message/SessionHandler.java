@@ -3,8 +3,8 @@ package com.faforever.server.message;
 import com.faforever.server.config.FAFProperties;
 import com.faforever.server.endpoint.connection.LobbyConnection;
 import com.faforever.server.endpoint.connection.UserAgent;
-import com.faforever.server.message.client.Message;
-import com.faforever.server.message.service.InboundMessage;
+import com.faforever.server.message.client.ProtocolMessage;
+import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.policy.PolicyClient;
 import com.faforever.server.policy.PolicyContents;
 import com.faforever.server.utils.NoThrowCloseable;
@@ -90,7 +90,7 @@ public class SessionHandler {
         }
     }
 
-    void sendMessage(Message.Server message) {
+    void sendMessage(ProtocolMessage.Server message) {
         if (connection == null) {
             throw new IllegalStateException("No connection");
         }
@@ -98,25 +98,25 @@ public class SessionHandler {
         connection.sendAndAwait(message);
     }
 
-    public void handleMessage(Message.Client message) {
+    public void handleMessage(ProtocolMessage.Client message) {
         try (NoThrowCloseable _ = populateMDC()) {
             switch (message) {
-                case Message.Connection.Client connectionMessage -> handleConnectionMessage(connectionMessage);
-                case Message.Passthrough passthrough ->
+                case ProtocolMessage.Connection.Client connectionMessage -> handleConnectionMessage(connectionMessage);
+                case ProtocolMessage.Passthrough passthrough ->
                         messageBroker.handleInboundMessage(wrapMessage(passthrough));
             }
         }
     }
 
-    private void handleConnectionMessage(Message.Connection.Client message) {
+    private void handleConnectionMessage(ProtocolMessage.Connection.Client message) {
         switch (message) {
-            case Message.Connection.Ping() -> sendMessage(new Message.Connection.Pong());
-            case Message.Connection.Pong() -> {}
-            case Message.Connection.SessionRequest(String agent, String version) -> {
+            case ProtocolMessage.Connection.Ping() -> sendMessage(new ProtocolMessage.Connection.Pong());
+            case ProtocolMessage.Connection.Pong() -> {}
+            case ProtocolMessage.Connection.SessionRequest(String agent, String version) -> {
                 setUserAgent(new UserAgent(agent, version));
-                sendMessage(new Message.Connection.SessionResponse(sessionId));
+                sendMessage(new ProtocolMessage.Connection.SessionResponse(sessionId));
             }
-            case Message.Connection.AuthenticateRequest(String token, String uniqueId) -> {
+            case ProtocolMessage.Connection.AuthenticateRequest(String token, String uniqueId) -> {
                 if (this.playerId != null) {
                     throw new IllegalStateException("Player already set for the session");
                 }
@@ -136,11 +136,11 @@ public class SessionHandler {
         }
     }
 
-    private <T extends Message.Passthrough> InboundMessage wrapMessage(T message) {
+    private <T extends ProtocolMessage.Passthrough> InboundPassthroughMessage wrapMessage(T message) {
         if (playerId == null) {
             throw new IllegalStateException("Not associated with a player");
         }
-        return new InboundMessage(sessionId, playerId, message);
+        return new InboundPassthroughMessage(sessionId, playerId, message);
     }
 
     private NoThrowCloseable populateMDC() {

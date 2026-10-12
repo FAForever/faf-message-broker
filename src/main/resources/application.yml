@@ -47,6 +47,9 @@ mp:
       lobby-inbound:
         connector: smallrye-rabbitmq
         virtual-host: ${RABBITMQ_VHOST:/faf-core}
+      player-connection:
+        connector: smallrye-rabbitmq
+        virtual-host: ${RABBITMQ_VHOST:/faf-core}
   jwt:
     verify:
       issuer: ${HYDRA_TOKEN_ISSUER:http://ory-hydra:4444}

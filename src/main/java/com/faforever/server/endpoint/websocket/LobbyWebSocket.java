@@ -1,7 +1,7 @@
 package com.faforever.server.endpoint.websocket;
 
 import com.faforever.server.message.SessionHandler;
-import com.faforever.server.message.client.Message;
+import com.faforever.server.message.client.ProtocolMessage;
 import io.quarkus.websockets.next.OnClose;
 import io.quarkus.websockets.next.OnError;
 import io.quarkus.websockets.next.OnOpen;
@@ -36,7 +36,7 @@ public class LobbyWebSocket implements Serializable {
     }
 
     @OnTextMessage
-    public void onTextMessage(Message.Client message) {
+    public void onTextMessage(ProtocolMessage.Client message) {
         sessionHandler.handleMessage(message);
     }
 
