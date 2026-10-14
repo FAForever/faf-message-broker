@@ -22,6 +22,11 @@ public class LobbyInboundOutgoingInterceptor implements OutgoingInterceptor {
 
     @Override
     public Message<?> beforeMessageSend(Message<?> message) {
-        return message.addMetadata(OutgoingRabbitMQMetadata.builder().withDeliveryMode(2).build());
+        OutgoingRabbitMQMetadata newMetadata = message.getMetadata(OutgoingRabbitMQMetadata.class)
+                .map(OutgoingRabbitMQMetadata::from)
+                .orElseGet(OutgoingRabbitMQMetadata::builder)
+                .withDeliveryMode(2)
+                .build();
+        return message.addMetadata(newMetadata);
     }
 }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import org.jspecify.annotations.Nullable;
+import tools.jackson.databind.annotation.JsonSerialize;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.node.StringNode;
 
@@ -30,6 +31,7 @@ public sealed interface ProtocolMessage permits ProtocolMessage.Client, Protocol
     )
     sealed interface Client extends ProtocolMessage permits Connection.Client, Passthrough {}
 
+    @JsonSerialize(using = PassthroughSerializer.class)
     sealed interface Passthrough extends Server, Client {
 
         ObjectNode message();

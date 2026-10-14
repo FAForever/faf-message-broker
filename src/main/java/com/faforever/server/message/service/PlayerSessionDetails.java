@@ -1,6 +1,6 @@
 package com.faforever.server.message.service;
 
-public record PlayerConnectionDetails(
+public record PlayerSessionDetails(
         int playerId,
         long sessionId,
         boolean connected

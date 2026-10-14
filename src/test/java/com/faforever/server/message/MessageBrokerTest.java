@@ -6,7 +6,7 @@ import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.message.service.LobbySchemaDetails;
 import com.faforever.server.message.service.OutboundPassthroughMessage;
 import com.faforever.server.message.service.OutboundTarget;
-import com.faforever.server.message.service.PlayerConnectionDetails;
+import com.faforever.server.message.service.PlayerSessionDetails;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.component.QuarkusComponentTest;
 import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
@@ -66,7 +66,7 @@ class MessageBrokerTest {
     @InjectMock
     private Emitter<InboundPassthroughMessage> lobbyMessageEmitter;
     @InjectMock
-    private Emitter<PlayerConnectionDetails> playerConnectionEmitter;
+    private Emitter<PlayerSessionDetails> playerConnectionEmitter;
     @InjectMock
     private LobbyCommandSchemaRepository lobbyCommandSchemaRepository;
 
@@ -87,17 +87,17 @@ class MessageBrokerTest {
 
             messageBroker.unregisterSession(sessionHandler);
 
-            ArgumentCaptor<PlayerConnectionDetails> messageCaptor = captor();
+            ArgumentCaptor<PlayerSessionDetails> messageCaptor = captor();
 
             verify(playerConnectionEmitter, times(2)).send(messageCaptor.capture());
 
-            List<PlayerConnectionDetails> allValues = messageCaptor.getAllValues();
+            List<PlayerSessionDetails> allValues = messageCaptor.getAllValues();
 
-            PlayerConnectionDetails connectedMessage = allValues.getFirst();
-            assertEquals(new PlayerConnectionDetails(PLAYER_ID, SESSION_ID_1, true), connectedMessage);
+            PlayerSessionDetails connectedMessage = allValues.getFirst();
+            assertEquals(new PlayerSessionDetails(PLAYER_ID, SESSION_ID_1, true), connectedMessage);
 
-            PlayerConnectionDetails disconnectedMessage = allValues.getLast();
-            assertEquals(new PlayerConnectionDetails(PLAYER_ID, SESSION_ID_1, false), disconnectedMessage);
+            PlayerSessionDetails disconnectedMessage = allValues.getLast();
+            assertEquals(new PlayerSessionDetails(PLAYER_ID, SESSION_ID_1, false), disconnectedMessage);
         }
 
     }

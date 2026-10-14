@@ -6,7 +6,7 @@ import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.message.service.LobbySchemaDetails;
 import com.faforever.server.message.service.OutboundPassthroughMessage;
 import com.faforever.server.message.service.OutboundTarget;
-import com.faforever.server.message.service.PlayerConnectionDetails;
+import com.faforever.server.message.service.PlayerSessionDetails;
 import com.faforever.server.utils.NoThrowCloseable;
 import com.networknt.schema.Error;
 import com.networknt.schema.InputFormat;
@@ -28,17 +28,19 @@ import org.jboss.logging.MDC;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.node.StringNode;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @JBossLog
 @ApplicationScoped
 public class MessageBroker {
 
     private final Emitter<InboundPassthroughMessage> lobbyMessageEmitter;
-    private final Emitter<PlayerConnectionDetails> playerConnectionEmitter;
+    private final Emitter<PlayerSessionDetails> playerConnectionEmitter;
 
     private final LobbyCommandSchemaRepository lobbyCommandSchemaRepository;
 
@@ -52,13 +54,20 @@ public class MessageBroker {
 
     public MessageBroker(@Channel("lobby-inbound") Emitter<InboundPassthroughMessage> lobbyMessageEmitter, @Channel(
             "player-connection"
-    ) Emitter<PlayerConnectionDetails> playerConnectionEmitter, LobbyCommandSchemaRepository lobbyCommandSchemaRepository) {
+    ) Emitter<PlayerSessionDetails> playerConnectionEmitter, LobbyCommandSchemaRepository lobbyCommandSchemaRepository) {
         this.lobbyMessageEmitter = lobbyMessageEmitter;
         this.playerConnectionEmitter = playerConnectionEmitter;
         this.lobbyCommandSchemaRepository = lobbyCommandSchemaRepository;
-        gameSchema = schemaRegistry.getSchema(SchemaLocation.of("gpg"),
+        this.gameSchema = schemaRegistry.getSchema(SchemaLocation.of("gpg"),
                                               ProtocolMessage.Passthrough.GPG.GAME_PASSTHROUGH_SCHEMA,
                                               InputFormat.JSON);
+    }
+
+    public Collection<PlayerSessionDetails> loadActiveSessionDetails() {
+        return sessionHandlerMap.values()
+                .stream()
+                .map(sessionHandler -> new PlayerSessionDetails(sessionHandler.playerId(), sessionHandler.sessionId(), true))
+                .collect(Collectors.toSet());
     }
 
     @PostConstruct
@@ -180,13 +189,13 @@ public class MessageBroker {
         }
 
         playerSessionMap.computeIfAbsent(playerId, _ -> ConcurrentHashMap.newKeySet()).add(sessionId);
-        playerConnectionEmitter.send(new PlayerConnectionDetails(playerId, sessionId, true));
+        playerConnectionEmitter.send(new PlayerSessionDetails(playerId, sessionId, true));
     }
 
     void unregisterSession(SessionHandler sessionHandler) {
         int playerId = sessionHandler.playerId();
         long sessionId = sessionHandler.sessionId();
-        playerConnectionEmitter.send(new PlayerConnectionDetails(playerId, sessionId, false));
+        playerConnectionEmitter.send(new PlayerSessionDetails(playerId, sessionId, false));
 
         if (!sessionHandlerMap.remove(sessionId, sessionHandler)) {
             LOG.warn("Session controller not associated with session");

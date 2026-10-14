@@ -1,4 +1,4 @@
-package com.faforever.server.message.service;
+package com.faforever.server.message;
 
 import io.smallrye.reactive.messaging.MessageConverter;
 import io.vertx.core.json.JsonObject;
