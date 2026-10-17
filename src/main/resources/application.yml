@@ -41,48 +41,48 @@ mp:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: message.outbound.client
+          name: lobby.message.outbound
         queue:
           durable: true
           auto-delete: true
           exclusive: true
-          name: message.outbound.client.${faf.instance-id}
+          name: broker.message.outbound.${faf.instance-id}
       lobby-schema-registration:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: register.schema
+          name: lobby.schema.register
         queue:
           durable: true
           auto-delete: true
           exclusive: true
-          name: register.schema.${faf.instance-id}
+          name: broker.schema.registration.${faf.instance-id}
       player-active-request:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: request.connection
+          name: lobby.session.request
         queue:
           durable: true
           auto-delete: true
           exclusive: true
-          name: request.connection.${faf.instance-id}
+          name: broker.session.requeest.${faf.instance-id}
     outgoing:
       lobby-inbound:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: message.inbound.client
+          name: lobby.message.inbound
       player-connection:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: register.connection
+          name: lobby.session.state
       lobby-schema-request:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: request.schema
+          name: lobby.schema.request
 
   jwt:
     verify:
