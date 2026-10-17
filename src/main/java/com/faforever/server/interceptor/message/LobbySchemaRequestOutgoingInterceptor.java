@@ -13,7 +13,8 @@ import java.util.List;
 @Identifier("lobby-schema-request")
 public class LobbySchemaRequestOutgoingInterceptor extends CompundRabbitMQOutgoingInterceptor {
 
-    public LobbySchemaRequestOutgoingInterceptor(@ConfigProperty(name = "mp.messaging.incoming.lobby-schema-registration.queue.name") String queueName) {
+    public LobbySchemaRequestOutgoingInterceptor(
+            @ConfigProperty(name = "mp.messaging.incoming.lobby-schema-registration.queue.name") String queueName) {
         super(List.of(new PersistentRabbitMQOutgoingInterceptor(), new ReplyToRabbitMQOutgoingInterceptor(queueName)));
     }
 

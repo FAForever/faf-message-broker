@@ -54,7 +54,8 @@ public class MessageSerializationTest {
                                     "command": "ping",
                                     "request_id": "%s"
                                 }
-                                """.formatted(ping.requestId()), jsonMapper.writeValueAsString((ProtocolMessage.Outgoing) ping),
+                                """.formatted(ping.requestId()),
+                                jsonMapper.writeValueAsString((ProtocolMessage.Outgoing) ping),
                                 JSONCompareMode.NON_EXTENSIBLE);
     }
 
@@ -132,7 +133,8 @@ public class MessageSerializationTest {
                                     "command": "pong",
                                     "request_id": "%s"
                                 }
-                                """.formatted(pong.requestId()), jsonMapper.writeValueAsString((ProtocolMessage.Outgoing) pong),
+                                """.formatted(pong.requestId()),
+                                jsonMapper.writeValueAsString((ProtocolMessage.Outgoing) pong),
                                 JSONCompareMode.NON_EXTENSIBLE);
     }
 
@@ -190,7 +192,9 @@ public class MessageSerializationTest {
 
     @Test
     void testSessionRequestSerialization() throws Exception {
-        ConnectionMessage.SessionRequest sessionRequest = new ConnectionMessage.SessionRequest("12345", "downlords-faf-client", "1.0.0");
+        ConnectionMessage.SessionRequest sessionRequest = new ConnectionMessage.SessionRequest("12345",
+                                                                                               "downlords-faf-client",
+                                                                                               "1.0.0");
 
         JSONAssert.assertEquals("""
                                 {
@@ -205,7 +209,9 @@ public class MessageSerializationTest {
 
     @Test
     void testSessionRequestWithoutRequestIdSerialization() throws Exception {
-        ConnectionMessage.SessionRequest sessionRequest = new ConnectionMessage.SessionRequest(null, "downlords-faf-client", "1.0.0");
+        ConnectionMessage.SessionRequest sessionRequest = new ConnectionMessage.SessionRequest(null,
+                                                                                               "downlords-faf-client",
+                                                                                               "1.0.0");
 
         JSONAssert.assertEquals("""
                                 {
@@ -214,7 +220,8 @@ public class MessageSerializationTest {
                                     "user_agent": "downlords-faf-client",
                                     "version": "1.0.0"
                                 }
-                                """.formatted(sessionRequest.requestId()), jsonMapper.writeValueAsString((ProtocolMessage.Incoming) sessionRequest),
+                                """.formatted(sessionRequest.requestId()),
+                                jsonMapper.writeValueAsString((ProtocolMessage.Incoming) sessionRequest),
                                 JSONCompareMode.NON_EXTENSIBLE);
     }
 
@@ -253,7 +260,9 @@ public class MessageSerializationTest {
 
     @Test
     void testAuthenticateRequestSerialization() throws Exception {
-        ConnectionMessage.AuthenticateRequest authRequest = new ConnectionMessage.AuthenticateRequest("12345", "jwt-token-xyz", "unique-id-999");
+        ConnectionMessage.AuthenticateRequest authRequest = new ConnectionMessage.AuthenticateRequest("12345",
+                                                                                                      "jwt-token-xyz",
+                                                                                                      "unique-id-999");
 
         JSONAssert.assertEquals("""
                                 {
@@ -268,7 +277,9 @@ public class MessageSerializationTest {
 
     @Test
     void testAuthenticateRequestWithoutRequestIdSerialization() throws Exception {
-        ConnectionMessage.AuthenticateRequest authRequest = new ConnectionMessage.AuthenticateRequest(null, "jwt-token-xyz", "unique-id-999");
+        ConnectionMessage.AuthenticateRequest authRequest = new ConnectionMessage.AuthenticateRequest(null,
+                                                                                                      "jwt-token-xyz",
+                                                                                                      "unique-id-999");
 
         JSONAssert.assertEquals("""
                                 {
@@ -277,7 +288,8 @@ public class MessageSerializationTest {
                                     "token": "jwt-token-xyz",
                                     "unique_id": "unique-id-999"
                                 }
-                                """.formatted(authRequest.requestId()), jsonMapper.writeValueAsString((ProtocolMessage.Incoming) authRequest),
+                                """.formatted(authRequest.requestId()),
+                                jsonMapper.writeValueAsString((ProtocolMessage.Incoming) authRequest),
                                 JSONCompareMode.NON_EXTENSIBLE);
     }
 
@@ -338,7 +350,8 @@ public class MessageSerializationTest {
                                     "request_id": "%s",
                                     "session": 987654
                                 }
-                                """.formatted(sessionResponse.requestId()), jsonMapper.writeValueAsString((ProtocolMessage.Outgoing) sessionResponse),
+                                """.formatted(sessionResponse.requestId()),
+                                jsonMapper.writeValueAsString((ProtocolMessage.Outgoing) sessionResponse),
                                 JSONCompareMode.NON_EXTENSIBLE);
     }
 
@@ -374,7 +387,8 @@ public class MessageSerializationTest {
 
     @Test
     void testLoginFailureResponseSerialization() throws Exception {
-        ConnectionMessage.LoginFailureResponse failureResponse = new ConnectionMessage.LoginFailureResponse("12345", "Invalid credentials");
+        ConnectionMessage.LoginFailureResponse failureResponse = new ConnectionMessage.LoginFailureResponse("12345",
+                                                                                                            "Invalid credentials");
 
         JSONAssert.assertEquals("""
                                 {
@@ -388,7 +402,8 @@ public class MessageSerializationTest {
 
     @Test
     void testLoginFailureResponseWithoutRequestIdSerialization() throws Exception {
-        ConnectionMessage.LoginFailureResponse failureResponse = new ConnectionMessage.LoginFailureResponse(null, "Invalid credentials");
+        ConnectionMessage.LoginFailureResponse failureResponse = new ConnectionMessage.LoginFailureResponse(null,
+                                                                                                            "Invalid credentials");
 
         JSONAssert.assertEquals("""
                                 {
@@ -396,7 +411,8 @@ public class MessageSerializationTest {
                                     "request_id": "%s",
                                     "text": "Invalid credentials"
                                 }
-                                """.formatted(failureResponse.requestId()), jsonMapper.writeValueAsString((ProtocolMessage.Outgoing) failureResponse),
+                                """.formatted(failureResponse.requestId()),
+                                jsonMapper.writeValueAsString((ProtocolMessage.Outgoing) failureResponse),
                                 JSONCompareMode.NON_EXTENSIBLE);
     }
 
@@ -462,7 +478,10 @@ public class MessageSerializationTest {
     @Test
     void testLobbyPassthroughSerialization() throws Exception {
         PassthroughMessage.Lobby lobbyMessage = new PassthroughMessage.Lobby("12345", "test_command",
-                jsonMapper.createObjectNode().put("command", "test_command").put("request_id", "12345").put("param", "value"));
+                                                                             jsonMapper.createObjectNode()
+                                                                                       .put("command", "test_command")
+                                                                                       .put("request_id", "12345")
+                                                                                       .put("param", "value"));
 
         JSONAssert.assertEquals("""
                                 {
@@ -606,7 +625,9 @@ public class MessageSerializationTest {
                                                                                             PassthroughMessage.of(
                                                                                                     jsonMapper.createObjectNode()
                                                                                                               .put("command",
-                                                                                                                   "test").put("request_id", "12345")));
+                                                                                                                   "test")
+                                                                                                              .put("request_id",
+                                                                                                                   "12345")));
 
         JSONAssert.assertEquals("""
                                 {
@@ -638,7 +659,8 @@ public class MessageSerializationTest {
                                     "command": "test"
                                 }
                                 }
-                                """.formatted(inboundPassthroughMessage.message().requestId()), jsonMapper.writeValueAsString(inboundPassthroughMessage),
+                                """.formatted(inboundPassthroughMessage.message().requestId()),
+                                jsonMapper.writeValueAsString(inboundPassthroughMessage),
                                 JSONCompareMode.NON_EXTENSIBLE);
     }
 
@@ -672,7 +694,9 @@ public class MessageSerializationTest {
 
     @Test
     void testLobbySchemaDetailsSerialization() throws Exception {
-        LobbySchemaDetails message = new LobbySchemaDetails("test", LobbySchemaDetails.Direction.INBOUND, jsonMapper.createObjectNode().put("type", "object"), "route");
+        LobbySchemaDetails message = new LobbySchemaDetails("test", LobbySchemaDetails.Direction.INBOUND,
+                                                            jsonMapper.createObjectNode().put("type", "object"),
+                                                            "route");
 
         JSONAssert.assertEquals("""
                                 {
@@ -703,10 +727,10 @@ public class MessageSerializationTest {
     @Test
     void testPassthroughWithoutRequestIdDeserialization() {
         PassthroughMessage message = jsonMapper.readValue("""
-                                                           {
-                                                               "command": "test"
-                                                           }
-                                                           """, PassthroughMessage.class);
+                                                          {
+                                                              "command": "test"
+                                                          }
+                                                          """, PassthroughMessage.class);
 
         assertInstanceOf(PassthroughMessage.Lobby.class, message);
         PassthroughMessage.Lobby lobby = (PassthroughMessage.Lobby) message;
@@ -720,38 +744,39 @@ public class MessageSerializationTest {
     void testOutboundPassthroughDeserialization() {
         OutboundPassthroughMessage outboundPassthroughMessage = new OutboundPassthroughMessage(OutboundTarget.player(1),
                                                                                                PassthroughMessage.of(
-                                                                                                    jsonMapper.createObjectNode()
-                                                                                                              .put("command",
-                                                                                                                   "test")
-                                                                                                              .put("request_id", "12345")));
+                                                                                                       jsonMapper.createObjectNode()
+                                                                                                                 .put("command",
+                                                                                                                      "test")
+                                                                                                                 .put("request_id",
+                                                                                                                      "12345")));
 
         assertEquals(outboundPassthroughMessage, jsonMapper.readValue("""
-                                                   {
-                                                       "target": {
-                                                            "@type": "player",
-                                                            "player_id": 1
-                                                       },
-                                                       "message": {
-                                                           "request_id": "12345",
-                                                           "command": "test"
-                                                       }
-                                                   }
-                                                   """, OutboundPassthroughMessage.class));
+                                                                      {
+                                                                          "target": {
+                                                                               "@type": "player",
+                                                                               "player_id": 1
+                                                                          },
+                                                                          "message": {
+                                                                              "request_id": "12345",
+                                                                              "command": "test"
+                                                                          }
+                                                                      }
+                                                                      """, OutboundPassthroughMessage.class));
     }
 
     @Test
     void testOutboundPassthroughWithoutRequestIdDeserialization() {
         OutboundPassthroughMessage message = jsonMapper.readValue("""
-                                                   {
-                                                       "target": {
-                                                            "@type": "player",
-                                                            "player_id": 1
-                                                       },
-                                                       "message": {
-                                                           "command": "test"
-                                                       }
-                                                   }
-                                                   """, OutboundPassthroughMessage.class);
+                                                                  {
+                                                                      "target": {
+                                                                           "@type": "player",
+                                                                           "player_id": 1
+                                                                      },
+                                                                      "message": {
+                                                                          "command": "test"
+                                                                      }
+                                                                  }
+                                                                  """, OutboundPassthroughMessage.class);
 
         assertEquals(OutboundTarget.player(1), message.target());
         assertInstanceOf(PassthroughMessage.Lobby.class, message.message());

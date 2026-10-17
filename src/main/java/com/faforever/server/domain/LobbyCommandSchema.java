@@ -1,8 +1,5 @@
 package com.faforever.server.domain;
 
-import lombok.AccessLevel;
-import lombok.AllArgsConstructor;
-import tools.jackson.databind.node.ObjectNode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import jakarta.persistence.EmbeddedId;
@@ -11,12 +8,15 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.EnumeratedValue;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import tools.jackson.databind.node.ObjectNode;
 
 @Entity
 @Table(name = "lobby_command_schema")
@@ -48,9 +48,9 @@ class LobbyCommandSchema {
     @RequiredArgsConstructor
     @Getter
     enum Direction {
-       INBOUND("inbound"), OUTBOUND("outbound");
+        INBOUND("inbound"), OUTBOUND("outbound");
 
-       @EnumeratedValue
-       private final String value;
+        @EnumeratedValue
+        private final String value;
     }
 }

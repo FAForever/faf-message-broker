@@ -91,12 +91,14 @@ class MessageBrokerTest {
             messageBroker.registerSession(PLAYER_ID, sessionHandler);
 
             verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1,
-                                                                        new PlayerSessionState.State.New(Duration.ofMinutes(2))));
+                                                                        new PlayerSessionState.State.New(
+                                                                                Duration.ofMinutes(2))));
 
             messageBroker.sendPlayerSessionUpdates();
 
             verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1,
-                                                                        new PlayerSessionState.State.Existing(Duration.ofMinutes(2))));
+                                                                        new PlayerSessionState.State.Existing(
+                                                                                Duration.ofMinutes(2))));
 
             messageBroker.unregisterSession(PLAYER_ID, sessionHandler);
 
@@ -164,9 +166,11 @@ class MessageBrokerTest {
 
         @Test
         void testUnknownLobbyMessage() {
-            messageBroker.handleInboundMessage(createInboundMessage(Map.of("command", new StringNode(COMMAND), "request_id", new StringNode("12345"))));
+            messageBroker.handleInboundMessage(createInboundMessage(
+                    Map.of("command", new StringNode(COMMAND), "request_id", new StringNode("12345"))));
             verifyNoInteractions(lobbyMessageEmitter);
-            verify(sessionHandler).sendMessage(new FailedMessage("12345", "Invalid message received", "message.invalid"));
+            verify(sessionHandler).sendMessage(
+                    new FailedMessage("12345", "Invalid message received", "message.invalid"));
         }
 
         @Test
@@ -178,10 +182,13 @@ class MessageBrokerTest {
             messageBroker.loadSchemas();
 
             messageBroker.handleInboundMessage(
-                    createInboundMessage(Map.of("command", new StringNode(COMMAND), "key", NullNode.getInstance(), "request_id", new StringNode("12345"))));
+                    createInboundMessage(
+                            Map.of("command", new StringNode(COMMAND), "key", NullNode.getInstance(), "request_id",
+                                   new StringNode("12345"))));
 
             verifyNoInteractions(lobbyMessageEmitter);
-            verify(sessionHandler).sendMessage(new FailedMessage("12345", "Invalid message received", "message.invalid"));
+            verify(sessionHandler).sendMessage(
+                    new FailedMessage("12345", "Invalid message received", "message.invalid"));
         }
 
         @Test

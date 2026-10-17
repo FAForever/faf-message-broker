@@ -101,9 +101,10 @@ public class MessageBroker {
         LobbySchemaKey lobbySchemaKey = new LobbySchemaKey(lobbySchemaDetails.command(),
                                                            lobbySchemaDetails.direction());
         ObjectNode schemaNode = lobbySchemaDetails.schema();
-        schemaNode.withObjectProperty(SchemaKeyword.TAG_PROPERTIES.forVersion(SchemaVersion.DRAFT_2020_12)).withObject(
-                "request_id").putIfAbsent(SchemaKeyword.TAG_TYPE.forVersion(SchemaVersion.DRAFT_2020_12),
-                                          new StringNode("string"));
+        schemaNode.withObjectProperty(SchemaKeyword.TAG_PROPERTIES.forVersion(SchemaVersion.DRAFT_2020_12))
+                  .withObject("request_id")
+                  .putIfAbsent(SchemaKeyword.TAG_TYPE.forVersion(SchemaVersion.DRAFT_2020_12),
+                               new StringNode("string"));
         Schema schema = schemaRegistry.getSchema(SchemaLocation.of(lobbySchemaDetails.command()), schemaNode);
         lobbySchemas.put(lobbySchemaKey, new LobbySchemaRoute(lobbySchemaDetails.route(), schema));
     }
@@ -127,9 +128,14 @@ public class MessageBroker {
     @Incoming("player-active-request")
     @Counted("faf.player.session.requests")
     CompletionStage<Void> handlePlayerSessionRequest(Message<Map<String, String>> message) {
-        Metadata metadata = message.getMetadata(IncomingRabbitMQMetadata.class).map(
-                IncomingRabbitMQMetadata::getReplyTo).map(replyTo -> OutgoingRabbitMQMetadata.builder().withRoutingKey(
-                replyTo).withExchange("").build()).map(Metadata::of).orElse(Metadata.of());
+        Metadata metadata = message.getMetadata(IncomingRabbitMQMetadata.class)
+                                   .map(IncomingRabbitMQMetadata::getReplyTo)
+                                   .map(replyTo -> OutgoingRabbitMQMetadata.builder()
+                                                                           .withRoutingKey(replyTo)
+                                                                           .withExchange("")
+                                                                           .build())
+                                   .map(Metadata::of)
+                                   .orElse(Metadata.of());
         playerSessionMap.entrySet()
                         .stream()
                         .flatMap(entry -> entry.getValue()
