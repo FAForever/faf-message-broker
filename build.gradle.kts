@@ -36,6 +36,7 @@ dependencies {
     implementation("io.quarkus:quarkus-rest-client-jackson")
     implementation("io.quarkus:quarkus-jdbc-postgresql")
     implementation("io.quarkus:quarkus-flyway")
+    implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
     implementation("org.flywaydb:flyway-database-postgresql")
 
     implementation("com.networknt:json-schema-validator:3.0.8")

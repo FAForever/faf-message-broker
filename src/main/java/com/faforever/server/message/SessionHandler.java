@@ -3,13 +3,16 @@ package com.faforever.server.message;
 import com.faforever.server.config.FAFProperties;
 import com.faforever.server.endpoint.connection.LobbyConnection;
 import com.faforever.server.endpoint.connection.UserAgent;
+import com.faforever.server.interceptor.cdi.MDCPopulated;
 import com.faforever.server.message.client.ConnectionMessage;
 import com.faforever.server.message.client.PassthroughMessage;
 import com.faforever.server.message.client.ProtocolMessage;
 import com.faforever.server.message.service.InboundPassthroughMessage;
+import com.faforever.server.micrometer.ProtocolMessageCommandResolver;
 import com.faforever.server.policy.PolicyClient;
 import com.faforever.server.policy.PolicyContents;
-import com.faforever.server.utils.NoThrowCloseable;
+import io.micrometer.core.annotation.Counted;
+import io.micrometer.core.aop.MeterTag;
 import io.smallrye.jwt.auth.principal.JWTParser;
 import io.smallrye.jwt.auth.principal.ParseException;
 import jakarta.annotation.PreDestroy;
@@ -17,7 +20,6 @@ import jakarta.enterprise.context.Dependent;
 import lombok.extern.jbosslog.JBossLog;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
-import org.jboss.logging.MDC;
 import org.jspecify.annotations.Nullable;
 
 import java.util.SplittableRandom;
@@ -47,11 +49,14 @@ public class SessionHandler {
         this.jwtParser = jwtParser;
     }
 
+    @MDCPopulated
     public void setConnection(LobbyConnection connection) {
+        LOG.trace("Establishing connection");
         if (this.connection != null) {
             throw new IllegalStateException("Connection already set for session");
         }
         this.connection = connection;
+        LOG.debug("Connection established");
     }
 
     private void setUserAgent(UserAgent userAgent) {
@@ -59,7 +64,7 @@ public class SessionHandler {
             LOG.warn("User agent already set for session");
             return;
         }
-        LOG.debugf("Detected user agent %s", userAgent);
+        LOG.infof("Detected user agent %s", userAgent);
         this.userAgent = userAgent;
     }
 
@@ -67,49 +72,49 @@ public class SessionHandler {
         return userAgent;
     }
 
-    int playerId() {
-        if (playerId == null) {
-            throw new IllegalStateException("Not authenticated");
-        }
+    public @Nullable Integer playerId() {
         return playerId;
     }
 
-    long sessionId() {
+    public long sessionId() {
         return sessionId;
     }
 
+    @MDCPopulated
     @PreDestroy
     public void close() {
-        try (NoThrowCloseable _ = populateMDC()) {
-            if (playerId != null) {
-                messageBroker.unregisterSession(this);
-                playerId = null;
-            }
-            if (connection != null) {
-                connection.close();
-                connection = null;
-            }
+        LOG.trace("Closing connection");
+        if (playerId != null) {
+            messageBroker.unregisterSession(playerId, this);
+            playerId = null;
         }
+        if (connection != null) {
+            connection.close();
+            connection = null;
+        }
+        LOG.debug("Connection closed");
     }
 
     void sendMessage(ProtocolMessage.Outgoing message) {
         if (connection == null) {
-            throw new IllegalStateException("No connection");
+            throw new IllegalStateException("No established connection");
         }
 
         connection.sendAndAwait(message);
     }
 
-    public void handleMessage(ProtocolMessage.Incoming message) {
-        try (NoThrowCloseable _ = populateMDC(message)) {
-            switch (message) {
-                case ConnectionMessage.Incoming connectionMessage -> handleConnectionMessage(connectionMessage);
-                case PassthroughMessage passthrough -> {
-                    if (playerId == null) {
-                        throw new IllegalStateException("Connection not yet authenticated");
-                    }
-                    messageBroker.handleInboundMessage(new InboundPassthroughMessage(sessionId, playerId, passthrough));
+    @MDCPopulated
+    @Counted("messages.inbound")
+    public void handleMessage(@MeterTag(
+            value = "command", resolver = ProtocolMessageCommandResolver.class
+    ) ProtocolMessage.Incoming message) {
+        switch (message) {
+            case ConnectionMessage.Incoming connectionMessage -> handleConnectionMessage(connectionMessage);
+            case PassthroughMessage passthrough -> {
+                if (playerId == null) {
+                    throw new IllegalStateException("Connection not yet authenticated");
                 }
+                messageBroker.handleInboundMessage(new InboundPassthroughMessage(sessionId, playerId, passthrough));
             }
         }
     }
@@ -140,30 +145,8 @@ public class SessionHandler {
                 if (fafProperties.usePolicyServer()) {
                     policyClient.checkPolicy(new PolicyContents(sessionId, playerId, uniqueId));
                 }
-                messageBroker.registerSession(this);
+                messageBroker.registerSession(playerId, this);
             }
         }
-    }
-
-    private NoThrowCloseable populateMDC(ProtocolMessage.Incoming protocolMessage) {
-        NoThrowCloseable sessionDetailsCloseable = populateMDC();
-        MDC.put("requestId", protocolMessage.requestId());
-
-        return () -> {
-            sessionDetailsCloseable.close();
-            MDC.remove("requestId");
-        };
-    }
-
-    private NoThrowCloseable populateMDC() {
-        MDC.put("sessionId", sessionId);
-        if (playerId != null) {
-            MDC.put("playerId", playerId);
-        }
-
-        return () -> {
-            MDC.remove("sessionId");
-            MDC.remove("playerId");
-        };
     }
 }

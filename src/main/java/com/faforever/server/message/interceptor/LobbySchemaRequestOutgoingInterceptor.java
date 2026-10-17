@@ -4,12 +4,12 @@ import com.faforever.server.message.interceptor.util.CompundRabbitMQOutgoingInte
 import com.faforever.server.message.interceptor.util.PersistentRabbitMQOutgoingInterceptor;
 import com.faforever.server.message.interceptor.util.ReplyToRabbitMQOutgoingInterceptor;
 import io.smallrye.common.annotation.Identifier;
-import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Singleton;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.util.List;
 
-@ApplicationScoped
+@Singleton
 @Identifier("player-active-response")
 public class LobbySchemaRequestOutgoingInterceptor extends CompundRabbitMQOutgoingInterceptor {
 

@@ -29,8 +29,11 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -69,7 +72,7 @@ class SessionHandlerTest {
 
     @Test
     void testUnauthenticatedPlayerId() {
-        assertThrows(IllegalStateException.class, () -> sessionHandler.playerId());
+        assertNull(sessionHandler.playerId());
     }
 
     @Test
@@ -172,7 +175,7 @@ class SessionHandlerTest {
         sessionHandler.close();
 
         assertTrue(connection.closed());
-        verify(messageBroker, never()).unregisterSession(sessionHandler);
+        verify(messageBroker, never()).unregisterSession(anyInt(), any(SessionHandler.class));
     }
 
     @Test
@@ -188,7 +191,7 @@ class SessionHandlerTest {
         sessionHandler.close();
 
         assertTrue(connection.closed());
-        verify(messageBroker).unregisterSession(sessionHandler);
+        verify(messageBroker).unregisterSession(playerId, sessionHandler);
     }
 
     @Test

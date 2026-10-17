@@ -85,9 +85,9 @@ class MessageBrokerTest {
 
         @Test
         void testRegistration() {
-            messageBroker.registerSession(sessionHandler);
+            messageBroker.registerSession(PLAYER_ID, sessionHandler);
 
-            Message<Collection<PlayerSessionStatus>> activeMessage = messageBroker.handlePlayerActiveRequest(
+            Message<Collection<PlayerSessionStatus>> activeMessage = messageBroker.handlePlayerSessionRequest(
                     Message.of(Map.of(), Metadata.of(OutgoingRabbitMQMetadata.builder()
                                                                              .withReplyTo("test.queue")
                                                                              .build()
@@ -95,7 +95,7 @@ class MessageBrokerTest {
             assertEquals("test.queue", activeMessage.getMetadata(OutgoingRabbitMQMetadata.class).map(OutgoingRabbitMQMetadata::getRoutingKey).orElseThrow());
             assertEquals(Set.of(new PlayerSessionStatus(PLAYER_ID, SESSION_ID_1, PlayerSessionStatus.State.EXISTING)), activeMessage.getPayload());
 
-            messageBroker.unregisterSession(sessionHandler);
+            messageBroker.unregisterSession(PLAYER_ID, sessionHandler);
 
             ArgumentCaptor<PlayerSessionStatus> messageCaptor = captor();
 
@@ -228,8 +228,8 @@ class MessageBrokerTest {
             when(sessionHandler2.playerId()).thenReturn(PLAYER_ID);
             when(sessionHandler2.sessionId()).thenReturn(SESSION_ID_2);
 
-            messageBroker.registerSession(sessionHandler1);
-            messageBroker.registerSession(sessionHandler2);
+            messageBroker.registerSession(PLAYER_ID, sessionHandler1);
+            messageBroker.registerSession(PLAYER_ID, sessionHandler2);
         }
 
         @Test
@@ -334,7 +334,7 @@ class MessageBrokerTest {
 
         @Test
         void testUnregisterSession() {
-            messageBroker.unregisterSession(sessionHandler1);
+            messageBroker.unregisterSession(PLAYER_ID, sessionHandler1);
 
             OutboundPassthroughMessage message = createOutboundMessage(OutboundTarget.all(),
                                                                        Map.of("command", new StringNode(COMMAND)));
@@ -346,11 +346,11 @@ class MessageBrokerTest {
 
         @Test
         void testDuplicateSessionRegistered() {
-            messageBroker.unregisterSession(sessionHandler2);
+            messageBroker.unregisterSession(PLAYER_ID, sessionHandler2);
 
             when(sessionHandler2.sessionId()).thenReturn(SESSION_ID_1);
 
-            assertThrows(IllegalStateException.class, () -> messageBroker.registerSession(sessionHandler2));
+            assertThrows(IllegalStateException.class, () -> messageBroker.registerSession(PLAYER_ID, sessionHandler2));
         }
 
         private OutboundPassthroughMessage createOutboundMessage(OutboundTarget target,

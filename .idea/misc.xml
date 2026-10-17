@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="EntryPointsManager">
-    <list size="6">
+    <list size="7">
       <item index="0" class="java.lang.String" itemvalue="io.quarkus.runtime.Startup" />
       <item index="1" class="java.lang.String" itemvalue="io.quarkus.websockets.next.OnClose" />
       <item index="2" class="java.lang.String" itemvalue="io.quarkus.websockets.next.OnError" />
       <item index="3" class="java.lang.String" itemvalue="io.quarkus.websockets.next.OnOpen" />
       <item index="4" class="java.lang.String" itemvalue="io.quarkus.websockets.next.OnTextMessage" />
-      <item index="5" class="java.lang.String" itemvalue="org.junit.jupiter.api.BeforeEach" />
+      <item index="5" class="java.lang.String" itemvalue="jakarta.interceptor.Interceptor" />
+      <item index="6" class="java.lang.String" itemvalue="org.junit.jupiter.api.BeforeEach" />
     </list>
     <writeAnnotations>
       <writeAnnotation name="io.quarkus.test.InjectMock" />

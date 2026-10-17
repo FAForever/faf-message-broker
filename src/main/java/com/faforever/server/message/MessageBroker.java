@@ -1,13 +1,14 @@
 package com.faforever.server.message;
 
 import com.faforever.server.domain.LobbyCommandSchemaRepository;
+import com.faforever.server.interceptor.cdi.MDCPopulated;
 import com.faforever.server.message.client.PassthroughMessage;
 import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.message.service.LobbySchemaDetails;
 import com.faforever.server.message.service.OutboundPassthroughMessage;
 import com.faforever.server.message.service.OutboundTarget;
 import com.faforever.server.message.service.PlayerSessionStatus;
-import com.faforever.server.utils.NoThrowCloseable;
+import com.faforever.server.micrometer.ProtocolMessageCommandResolver;
 import com.github.victools.jsonschema.generator.SchemaKeyword;
 import com.github.victools.jsonschema.generator.SchemaVersion;
 import com.networknt.schema.Error;
@@ -16,6 +17,9 @@ import com.networknt.schema.Schema;
 import com.networknt.schema.SchemaLocation;
 import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
+import io.micrometer.core.annotation.Counted;
+import io.micrometer.core.aop.MeterTag;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import io.smallrye.reactive.messaging.rabbitmq.IncomingRabbitMQMetadata;
 import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
@@ -28,7 +32,6 @@ import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.eclipse.microprofile.reactive.messaging.Metadata;
 import org.eclipse.microprofile.reactive.messaging.Outgoing;
-import org.jboss.logging.MDC;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.node.StringNode;
 
@@ -50,24 +53,27 @@ public class MessageBroker {
 
     private final LobbyCommandSchemaRepository lobbyCommandSchemaRepository;
 
-    private final Map<LobbySchemaKey, LobbySchemaRoute> lobbySchemas = new ConcurrentHashMap<>();
-    private final Schema gameSchema;
 
-    private final Map<Long, SessionHandler> sessionHandlerMap = new ConcurrentHashMap<>();
-    private final Map<Integer, Set<Long>> playerSessionMap = new ConcurrentHashMap<>();
+    private final Map<LobbySchemaKey, LobbySchemaRoute> lobbySchemas;
+    private final Map<Long, SessionHandler> sessionHandlerMap;
+    private final Map<Integer, Set<Long>> playerSessionMap;
+    private final Schema gameSchema;
 
     private final SchemaRegistry schemaRegistry = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12);
 
     public MessageBroker(@Channel("lobby-schema-request") Emitter<Map<String, String>> schemaRequestEmitter,
                          @Channel("lobby-inbound") Emitter<InboundPassthroughMessage> lobbyMessageEmitter,
                          @Channel("player-connection") Emitter<PlayerSessionStatus> playerConnectionEmitter,
-                         LobbyCommandSchemaRepository lobbyCommandSchemaRepository) {
+                         LobbyCommandSchemaRepository lobbyCommandSchemaRepository, MeterRegistry meterRegistry) {
         this.schemaRequestEmitter = schemaRequestEmitter;
         this.lobbyMessageEmitter = lobbyMessageEmitter;
         this.playerConnectionEmitter = playerConnectionEmitter;
         this.lobbyCommandSchemaRepository = lobbyCommandSchemaRepository;
         this.gameSchema = schemaRegistry.getSchema(SchemaLocation.of("gpg"),
                                                    PassthroughMessage.GPG.GAME_PASSTHROUGH_SCHEMA, InputFormat.JSON);
+        sessionHandlerMap = meterRegistry.gaugeMapSize("sessions", Set.of(), new ConcurrentHashMap<>());
+        playerSessionMap = meterRegistry.gaugeMapSize("players", Set.of(), new ConcurrentHashMap<>());
+        lobbySchemas = meterRegistry.gaugeMapSize("schema", Set.of(), new ConcurrentHashMap<>());
     }
 
     @PostConstruct
@@ -77,6 +83,7 @@ public class MessageBroker {
     }
 
     @Incoming("lobby-schema-registration")
+    @Counted("schema.registrations")
     void handleLobbySchemaRegistration(LobbySchemaDetails lobbySchemaDetails) {
         lobbyCommandSchemaRepository.save(lobbySchemaDetails);
         registerSchema(lobbySchemaDetails);
@@ -87,18 +94,25 @@ public class MessageBroker {
                                                            lobbySchemaDetails.direction());
         ObjectNode schemaNode = lobbySchemaDetails.schema();
         schemaNode.withObjectProperty(SchemaKeyword.TAG_PROPERTIES.forVersion(SchemaVersion.DRAFT_2020_12)).withObject(
-                "request_id").putIfAbsent(SchemaKeyword.TAG_TYPE.forVersion(SchemaVersion.DRAFT_2020_12), new StringNode("string"));
+                "request_id").putIfAbsent(SchemaKeyword.TAG_TYPE.forVersion(SchemaVersion.DRAFT_2020_12),
+                                          new StringNode("string"));
         Schema schema = schemaRegistry.getSchema(SchemaLocation.of(lobbySchemaDetails.command()), schemaNode);
         lobbySchemas.put(lobbySchemaKey, new LobbySchemaRoute(lobbySchemaDetails.route(), schema));
     }
 
     @Incoming("player-active-request")
     @Outgoing("player-active-response")
-    Message<Collection<PlayerSessionStatus>> handlePlayerActiveRequest(Message<Map<String, String>> message) {
-        Set<PlayerSessionStatus> activeSessions = sessionHandlerMap.values().stream().map(
-                sessionHandler -> new PlayerSessionStatus(sessionHandler.playerId(), sessionHandler.sessionId(),
-                                                          PlayerSessionStatus.State.EXISTING)).collect(
-                Collectors.toSet());
+    @Counted("player.session.requests")
+    Message<Collection<PlayerSessionStatus>> handlePlayerSessionRequest(Message<Map<String, String>> message) {
+        Set<PlayerSessionStatus> activeSessions = playerSessionMap.entrySet()
+                                                                  .stream()
+                                                                  .flatMap(entry -> entry.getValue()
+                                                                                         .stream()
+                                                                                         .map(sessionId -> new PlayerSessionStatus(
+                                                                                                 entry.getKey(),
+                                                                                                 sessionId,
+                                                                                                 PlayerSessionStatus.State.EXISTING)))
+                                                                  .collect(Collectors.toSet());
 
         String replyToQueue = message.getMetadata(IncomingRabbitMQMetadata.class).map(
                 IncomingRabbitMQMetadata::getReplyTo).orElse("");
@@ -152,16 +166,18 @@ public class MessageBroker {
         }
     }
 
+    @MDCPopulated
     @Incoming("lobby-outbound")
-    void handleOutboundMessage(OutboundPassthroughMessage outboundPassthroughMessage) {
-        try (NoThrowCloseable _ = populateMDC(outboundPassthroughMessage)) {
+    @Counted("messages.outbound")
+    void handleOutboundMessage(@MeterTag(
+            value = "command", resolver = ProtocolMessageCommandResolver.class
+    ) OutboundPassthroughMessage outboundPassthroughMessage) {
             PassthroughMessage message = outboundPassthroughMessage.message();
             switch (outboundPassthroughMessage.target()) {
                 case OutboundTarget.Session(long sessionId) -> sendMessageToSession(sessionId, message);
                 case OutboundTarget.Player(int playerId) -> sendMessageToPlayer(playerId, message);
                 case OutboundTarget.All() -> sendMessageToAll(message);
             }
-        }
     }
 
     private void sendMessageToAll(PassthroughMessage message) {
@@ -194,8 +210,8 @@ public class MessageBroker {
         }
     }
 
-    void registerSession(SessionHandler sessionHandler) {
-        int playerId = sessionHandler.playerId();
+    void registerSession(int playerId, SessionHandler sessionHandler) {
+        LOG.info("Session registered");
         long sessionId = sessionHandler.sessionId();
         SessionHandler mappedSessionHandler = sessionHandlerMap.putIfAbsent(sessionId, sessionHandler);
         if (mappedSessionHandler != null && mappedSessionHandler != sessionHandler) {
@@ -212,13 +228,14 @@ public class MessageBroker {
         playerConnectionEmitter.send(new PlayerSessionStatus(playerId, sessionId, PlayerSessionStatus.State.NEW));
     }
 
-    void unregisterSession(SessionHandler sessionHandler) {
-        int playerId = sessionHandler.playerId();
+    void unregisterSession(int playerId, SessionHandler sessionHandler) {
+        LOG.info("Session unregistered");
         long sessionId = sessionHandler.sessionId();
         playerConnectionEmitter.send(new PlayerSessionStatus(playerId, sessionId, PlayerSessionStatus.State.GONE));
 
         if (!sessionHandlerMap.remove(sessionId, sessionHandler)) {
             LOG.warn("Session controller not associated with session");
+            return;
         }
 
         playerSessionMap.compute(playerId, (_, sessions) -> {
@@ -229,21 +246,6 @@ public class MessageBroker {
 
             return sessions.isEmpty() ? null : sessions;
         });
-    }
-
-    private NoThrowCloseable populateMDC(OutboundPassthroughMessage outboundPassthroughMessage) {
-        switch (outboundPassthroughMessage.target()) {
-            case OutboundTarget.Player(int playerId) -> MDC.put("playerId", playerId);
-            case OutboundTarget.Session(long sessionId) -> MDC.put("sessionId", sessionId);
-            case OutboundTarget.All() -> {}
-        }
-        MDC.put(outboundPassthroughMessage.message().requestId(), "requestId");
-
-        return () -> {
-            MDC.remove("sessionId");
-            MDC.remove("playerId");
-            MDC.remove("requestId");
-        };
     }
 
     private record LobbySchemaKey(

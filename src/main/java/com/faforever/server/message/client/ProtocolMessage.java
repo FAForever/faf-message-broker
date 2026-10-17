@@ -7,24 +7,42 @@ public sealed interface ProtocolMessage permits ProtocolMessage.Incoming, Protoc
 
     String requestId();
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "command", defaultImpl = PassthroughMessage.class, visible = true)
+    String command();
+
+    @JsonTypeInfo(
+            use = JsonTypeInfo.Id.NAME, property = "command", defaultImpl = PassthroughMessage.class, visible = true
+    )
     @JsonSubTypes(
             {
-                    @JsonSubTypes.Type(value = ConnectionMessage.Ping.class, name = "ping"),
-                    @JsonSubTypes.Type(value = ConnectionMessage.Pong.class, name = "pong"),
-                    @JsonSubTypes.Type(value = ConnectionMessage.SessionResponse.class, name = "session"),
-                    @JsonSubTypes.Type(value = ConnectionMessage.LoginFailureResponse.class, name = "authentication_failure"),
+                    @JsonSubTypes.Type(value = ConnectionMessage.Ping.class, name = ConnectionMessage.Ping.COMMAND),
+                    @JsonSubTypes.Type(value = ConnectionMessage.Pong.class, name = ConnectionMessage.Pong.COMMAND),
+                    @JsonSubTypes.Type(
+                            value = ConnectionMessage.SessionResponse.class,
+                            name = ConnectionMessage.SessionResponse.COMMAND
+                    ),
+                    @JsonSubTypes.Type(
+                            value = ConnectionMessage.LoginFailureResponse.class,
+                            name = ConnectionMessage.LoginFailureResponse.COMMAND
+                    ),
             }
     )
     sealed interface Outgoing extends ProtocolMessage permits ConnectionMessage.Outgoing, PassthroughMessage {}
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "command", defaultImpl = PassthroughMessage.class, visible = true)
+    @JsonTypeInfo(
+            use = JsonTypeInfo.Id.NAME, property = "command", defaultImpl = PassthroughMessage.class, visible = true
+    )
     @JsonSubTypes(
             {
-                    @JsonSubTypes.Type(value = ConnectionMessage.Ping.class, name = "ping"),
-                    @JsonSubTypes.Type(value = ConnectionMessage.Pong.class, name = "pong"),
-                    @JsonSubTypes.Type(value = ConnectionMessage.SessionRequest.class, name = "ask_session"),
-                    @JsonSubTypes.Type(value = ConnectionMessage.AuthenticateRequest.class, name = "auth"),
+                    @JsonSubTypes.Type(value = ConnectionMessage.Ping.class, name = ConnectionMessage.Ping.COMMAND),
+                    @JsonSubTypes.Type(value = ConnectionMessage.Pong.class, name = ConnectionMessage.Pong.COMMAND),
+                    @JsonSubTypes.Type(
+                            value = ConnectionMessage.SessionRequest.class,
+                            name = ConnectionMessage.SessionRequest.COMMAND
+                    ),
+                    @JsonSubTypes.Type(
+                            value = ConnectionMessage.AuthenticateRequest.class,
+                            name = ConnectionMessage.AuthenticateRequest.COMMAND
+                    ),
             }
     )
     sealed interface Incoming extends ProtocolMessage permits ConnectionMessage.Incoming, PassthroughMessage {}
