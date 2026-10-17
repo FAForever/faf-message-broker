@@ -1,6 +1,6 @@
 package com.faforever.server.message;
 
-import com.faforever.server.message.client.ProtocolMessage;
+import com.faforever.server.message.client.PassthroughMessage;
 import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.message.service.LobbySchemaDetails;
 import com.faforever.server.message.service.OutboundPassthroughMessage;
@@ -28,16 +28,17 @@ public class MessageSerializationTest {
     @Test
     void testInboundPassthroughSerialization() throws Exception {
         InboundPassthroughMessage inboundPassthroughMessage = new InboundPassthroughMessage(2, 1,
-                                                                                            ProtocolMessage.Passthrough.of(
+                                                                                            PassthroughMessage.of(
                                                                                                     jsonMapper.createObjectNode()
                                                                                                               .put("command",
-                                                                                                                   "test")));
+                                                                                                                   "test").put("request_id", "12345")));
 
         JSONAssert.assertEquals("""
                                 {
                                 "player_id": 1,
                                 "session_id": 2,
                                 "message": {
+                                    "request_id": "12345",
                                     "command": "test"
                                 }
                                 }
@@ -47,11 +48,12 @@ public class MessageSerializationTest {
 
     @Test
     void testPassthroughSerialization() throws Exception {
-        ProtocolMessage.Passthrough message = ProtocolMessage.Passthrough.of(
-                jsonMapper.createObjectNode().put("command", "test"));
+        PassthroughMessage message = PassthroughMessage.of(
+                jsonMapper.createObjectNode().put("command", "test").put("request_id", "12345"));
 
         JSONAssert.assertEquals("""
                                 {
+                                    "request_id": "12345",
                                     "command": "test"
                                 }
                                 """, jsonMapper.writeValueAsString(message),
@@ -76,24 +78,26 @@ public class MessageSerializationTest {
     }
 
     @Test
-    void testPassthroughDeserialization() throws Exception {
-        ProtocolMessage.Passthrough message = ProtocolMessage.Passthrough.of(
-                jsonMapper.createObjectNode().put("command", "test"));
+    void testPassthroughDeserialization() {
+        PassthroughMessage message = PassthroughMessage.of(
+                jsonMapper.createObjectNode().put("command", "test").put("request_id", "12345"));
 
         assertEquals(message, jsonMapper.readValue("""
                                                    {
+                                                       "request_id": "12345",
                                                        "command": "test"
                                                    }
-                                                   """, ProtocolMessage.Passthrough.class));
+                                                   """, PassthroughMessage.class));
     }
 
     @Test
-    void testOutboundPassthroughDeserialization() throws Exception {
+    void testOutboundPassthroughDeserialization() {
         OutboundPassthroughMessage outboundPassthroughMessage = new OutboundPassthroughMessage(OutboundTarget.player(1),
-                                                                                               ProtocolMessage.Passthrough.of(
+                                                                                               PassthroughMessage.of(
                                                                                                     jsonMapper.createObjectNode()
                                                                                                               .put("command",
-                                                                                                                   "test")));
+                                                                                                                   "test")
+                                                                                                            .put("request_id", "12345")));
 
         assertEquals(outboundPassthroughMessage, jsonMapper.readValue("""
                                                    {
@@ -102,6 +106,7 @@ public class MessageSerializationTest {
                                                             "player_id": 1
                                                        },
                                                        "message": {
+                                                           "request_id": "12345",
                                                            "command": "test"
                                                        }
                                                    }

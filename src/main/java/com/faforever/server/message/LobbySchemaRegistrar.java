@@ -36,8 +36,8 @@ public class LobbySchemaRegistrar {
 
     @Startup
     void registerSchemas() {
-        registerSchemasUsingTypeInfo(ProtocolMessage.Client.class, LobbySchemaDetails.Direction.INBOUND);
-        registerSchemasUsingTypeInfo(ProtocolMessage.Server.class, LobbySchemaDetails.Direction.OUTBOUND);
+        registerSchemasUsingTypeInfo(ProtocolMessage.Incoming.class, LobbySchemaDetails.Direction.INBOUND);
+        registerSchemasUsingTypeInfo(ProtocolMessage.Outgoing.class, LobbySchemaDetails.Direction.OUTBOUND);
     }
 
     private void registerSchemasUsingTypeInfo(Class<?> baseMessageClass, LobbySchemaDetails.Direction direction) {

@@ -1,7 +1,9 @@
 package com.faforever.server.message;
 
-import com.faforever.server.connection.TestLobbyConnection;
+import com.faforever.server.endpoint.connection.LobbyConnection;
 import com.faforever.server.endpoint.connection.UserAgent;
+import com.faforever.server.message.client.ConnectionMessage;
+import com.faforever.server.message.client.PassthroughMessage;
 import com.faforever.server.message.client.ProtocolMessage;
 import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.policy.PolicyClient;
@@ -17,6 +19,9 @@ import jakarta.inject.Inject;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -56,7 +61,7 @@ class SessionHandlerTest {
 
     @Test
     void testUnauthenticatedClientMessage() {
-        ProtocolMessage.Passthrough message = createPassthroughMessage();
+        PassthroughMessage message = createPassthroughMessage();
 
         assertThrows(IllegalStateException.class, () -> sessionHandler.handleMessage(message));
         verifyNoInteractions(messageBroker);
@@ -69,30 +74,30 @@ class SessionHandlerTest {
 
     @Test
     void testPing() {
-        sessionHandler.handleMessage(new ProtocolMessage.Connection.Ping());
-        assertThat(connection.getSentMessages(), contains(new ProtocolMessage.Connection.Pong()));
+        sessionHandler.handleMessage(new ConnectionMessage.Ping(""));
+        assertThat(connection.getSentMessages(), contains(new ConnectionMessage.Pong("")));
     }
 
     @Test
     void testPong() {
-        sessionHandler.handleMessage(new ProtocolMessage.Connection.Pong());
+        sessionHandler.handleMessage(new ConnectionMessage.Pong(""));
         assertThat(connection.getSentMessages(), hasSize(0));
     }
 
     @Test
     void testSessionRequest() {
         UserAgent userAgent = new UserAgent("userAgent", "1.0");
-        sessionHandler.handleMessage(new ProtocolMessage.Connection.SessionRequest(userAgent.agent(), userAgent.version()));
+        sessionHandler.handleMessage(new ConnectionMessage.SessionRequest("", userAgent.agent(), userAgent.version()));
         assertThat(connection.getSentMessages(),
-                   contains(new ProtocolMessage.Connection.SessionResponse(sessionHandler.sessionId())));
+                   contains(new ConnectionMessage.SessionResponse("", sessionHandler.sessionId())));
         assertThat(sessionHandler.userAgent(), equalTo(userAgent));
     }
 
     @Test
     void testDuplicateSessionRequest() {
         UserAgent userAgent = new UserAgent("userAgent", "1.0");
-        ProtocolMessage.Connection.SessionRequest message = new ProtocolMessage.Connection.SessionRequest(userAgent.agent(),
-                                                                                                          userAgent.version());
+        ConnectionMessage.SessionRequest message = new ConnectionMessage.SessionRequest("", userAgent.agent(),
+                                                                                        userAgent.version());
         sessionHandler.handleMessage(message);
         assertDoesNotThrow(() -> sessionHandler.handleMessage(message));
     }
@@ -105,7 +110,7 @@ class SessionHandlerTest {
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
-        sessionHandler.handleMessage(new ProtocolMessage.Connection.AuthenticateRequest("", ""));
+        sessionHandler.handleMessage(new ConnectionMessage.AuthenticateRequest("", "", ""));
 
         assertDoesNotThrow(() -> sessionHandler.playerId());
         verify(policyClient).checkPolicy(new PolicyContents(sessionHandler.sessionId(), playerId, ""));
@@ -118,7 +123,7 @@ class SessionHandlerTest {
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
-        sessionHandler.handleMessage(new ProtocolMessage.Connection.AuthenticateRequest("", ""));
+        sessionHandler.handleMessage(new ConnectionMessage.AuthenticateRequest("", "", ""));
 
         assertEquals(playerId, sessionHandler.playerId());
         verifyNoInteractions(policyClient);
@@ -131,9 +136,20 @@ class SessionHandlerTest {
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
-        ProtocolMessage.Connection.AuthenticateRequest message = new ProtocolMessage.Connection.AuthenticateRequest("", "");
+        ConnectionMessage.AuthenticateRequest message = new ConnectionMessage.AuthenticateRequest("", "", "");
         sessionHandler.handleMessage(message);
         assertThrows(IllegalStateException.class, () -> sessionHandler.handleMessage(message));
+    }
+
+    @Test
+    void testAuthenticateRequestBadToken() throws ParseException {
+        when(jwtParser.parse("")).thenThrow(new ParseException(""));
+
+        ConnectionMessage.AuthenticateRequest message = new ConnectionMessage.AuthenticateRequest("", "", "");
+        sessionHandler.handleMessage(message);
+        assertThat(connection.getSentMessages(),
+                   contains(new ConnectionMessage.LoginFailureResponse("", "Invalid access token provided")));
+        assertTrue(connection.closed());
     }
 
     @Test
@@ -143,9 +159,9 @@ class SessionHandlerTest {
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
-        sessionHandler.handleMessage(new ProtocolMessage.Connection.AuthenticateRequest("", ""));
+        sessionHandler.handleMessage(new ConnectionMessage.AuthenticateRequest("", "", ""));
 
-        ProtocolMessage.Passthrough message = createPassthroughMessage();
+        PassthroughMessage message = createPassthroughMessage();
         sessionHandler.handleMessage(message);
         verify(messageBroker).handleInboundMessage(
                 new InboundPassthroughMessage(sessionHandler.sessionId(), playerId, message));
@@ -166,7 +182,7 @@ class SessionHandlerTest {
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
-        sessionHandler.handleMessage(new ProtocolMessage.Connection.AuthenticateRequest("", ""));
+        sessionHandler.handleMessage(new ConnectionMessage.AuthenticateRequest("", "", ""));
 
 
         sessionHandler.close();
@@ -187,9 +203,37 @@ class SessionHandlerTest {
         assertThrows(IllegalStateException.class, () -> sessionHandler.setConnection(new TestLobbyConnection()));
     }
 
-    private ProtocolMessage.Passthrough createPassthroughMessage() {
+    private PassthroughMessage createPassthroughMessage() {
         ObjectNode node = JsonNodeFactory.instance.objectNode();
         node.put("command", "test");
-        return ProtocolMessage.Passthrough.of(node);
+        return PassthroughMessage.of(node);
+    }
+
+    private static class TestLobbyConnection implements LobbyConnection {
+
+        private final List<ProtocolMessage.Outgoing> sentMessages = new ArrayList<>();
+
+        private boolean closed = false;
+
+        public List<ProtocolMessage.Outgoing> getSentMessages() {
+            return List.copyOf(sentMessages);
+        }
+
+        public boolean closed() {
+            return closed;
+        }
+
+        @Override
+        public void sendAndAwait(ProtocolMessage.Outgoing message) {
+            if (closed) {
+                throw new IllegalStateException("Test connection closed");
+            }
+            sentMessages.add(message);
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+        }
     }
 }

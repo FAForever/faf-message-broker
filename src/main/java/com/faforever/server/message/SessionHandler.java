@@ -3,6 +3,8 @@ package com.faforever.server.message;
 import com.faforever.server.config.FAFProperties;
 import com.faforever.server.endpoint.connection.LobbyConnection;
 import com.faforever.server.endpoint.connection.UserAgent;
+import com.faforever.server.message.client.ConnectionMessage;
+import com.faforever.server.message.client.PassthroughMessage;
 import com.faforever.server.message.client.ProtocolMessage;
 import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.policy.PolicyClient;
@@ -90,7 +92,7 @@ public class SessionHandler {
         }
     }
 
-    void sendMessage(ProtocolMessage.Server message) {
+    void sendMessage(ProtocolMessage.Outgoing message) {
         if (connection == null) {
             throw new IllegalStateException("No connection");
         }
@@ -98,25 +100,29 @@ public class SessionHandler {
         connection.sendAndAwait(message);
     }
 
-    public void handleMessage(ProtocolMessage.Client message) {
-        try (NoThrowCloseable _ = populateMDC()) {
+    public void handleMessage(ProtocolMessage.Incoming message) {
+        try (NoThrowCloseable _ = populateMDC(message)) {
             switch (message) {
-                case ProtocolMessage.Connection.Client connectionMessage -> handleConnectionMessage(connectionMessage);
-                case ProtocolMessage.Passthrough passthrough ->
-                        messageBroker.handleInboundMessage(wrapMessage(passthrough));
+                case ConnectionMessage.Incoming connectionMessage -> handleConnectionMessage(connectionMessage);
+                case PassthroughMessage passthrough -> {
+                    if (playerId == null) {
+                        throw new IllegalStateException("Connection not yet authenticated");
+                    }
+                    messageBroker.handleInboundMessage(new InboundPassthroughMessage(sessionId, playerId, passthrough));
+                }
             }
         }
     }
 
-    private void handleConnectionMessage(ProtocolMessage.Connection.Client message) {
+    private void handleConnectionMessage(ConnectionMessage.Incoming message) {
         switch (message) {
-            case ProtocolMessage.Connection.Ping() -> sendMessage(new ProtocolMessage.Connection.Pong());
-            case ProtocolMessage.Connection.Pong() -> {}
-            case ProtocolMessage.Connection.SessionRequest(String agent, String version) -> {
+            case ConnectionMessage.Ping(String requestId) -> sendMessage(new ConnectionMessage.Pong(requestId));
+            case ConnectionMessage.Pong _ -> {}
+            case ConnectionMessage.SessionRequest(String requestId, String agent, String version) -> {
                 setUserAgent(new UserAgent(agent, version));
-                sendMessage(new ProtocolMessage.Connection.SessionResponse(sessionId));
+                sendMessage(new ConnectionMessage.SessionResponse(requestId, sessionId));
             }
-            case ProtocolMessage.Connection.AuthenticateRequest(String token, String uniqueId) -> {
+            case ConnectionMessage.AuthenticateRequest(String requestId, String token, String uniqueId) -> {
                 if (this.playerId != null) {
                     throw new IllegalStateException("Player already set for the session");
                 }
@@ -125,7 +131,10 @@ public class SessionHandler {
                 try {
                     jwt = jwtParser.parse(token);
                 } catch (ParseException e) {
-                    throw new RuntimeException(e);
+                    LOG.warn("Unable to parse jwt", e);
+                    sendMessage(new ConnectionMessage.LoginFailureResponse(requestId, "Invalid access token provided"));
+                    close();
+                    return;
                 }
                 playerId = Integer.parseInt(jwt.getSubject());
                 if (fafProperties.usePolicyServer()) {
@@ -136,11 +145,14 @@ public class SessionHandler {
         }
     }
 
-    private <T extends ProtocolMessage.Passthrough> InboundPassthroughMessage wrapMessage(T message) {
-        if (playerId == null) {
-            throw new IllegalStateException("Not associated with a player");
-        }
-        return new InboundPassthroughMessage(sessionId, playerId, message);
+    private NoThrowCloseable populateMDC(ProtocolMessage.Incoming protocolMessage) {
+        NoThrowCloseable sessionDetailsCloseable = populateMDC();
+        MDC.put("requestId", protocolMessage.requestId());
+
+        return () -> {
+            sessionDetailsCloseable.close();
+            MDC.remove("requestId");
+        };
     }
 
     private NoThrowCloseable populateMDC() {
@@ -154,5 +166,4 @@ public class SessionHandler {
             MDC.remove("playerId");
         };
     }
-
 }

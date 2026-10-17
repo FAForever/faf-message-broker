@@ -11,7 +11,7 @@ public class LobbyJsonWebsocketConnection implements LobbyConnection {
     private final WebSocketConnection websocket;
 
     @Override
-    public void sendAndAwait(ProtocolMessage.Server message) {
+    public void sendAndAwait(ProtocolMessage.Outgoing message) {
         websocket.sendTextAndAwait(message);
     }
 

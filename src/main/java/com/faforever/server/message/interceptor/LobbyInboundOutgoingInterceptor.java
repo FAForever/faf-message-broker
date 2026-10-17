@@ -1,32 +1,17 @@
 package com.faforever.server.message.interceptor;
 
+import com.faforever.server.message.interceptor.util.CompundRabbitMQOutgoingInterceptor;
+import com.faforever.server.message.interceptor.util.PersistentRabbitMQOutgoingInterceptor;
 import io.smallrye.common.annotation.Identifier;
-import io.smallrye.reactive.messaging.OutgoingInterceptor;
-import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
-import org.eclipse.microprofile.reactive.messaging.Message;
+
+import java.util.List;
 
 @ApplicationScoped
 @Identifier("lobby-inbound")
-public class LobbyInboundOutgoingInterceptor implements OutgoingInterceptor {
+public class LobbyInboundOutgoingInterceptor extends CompundRabbitMQOutgoingInterceptor {
 
-    @Override
-    public void onMessageAck(Message<?> message) {
-
-    }
-
-    @Override
-    public void onMessageNack(Message<?> message, Throwable failure) {
-
-    }
-
-    @Override
-    public Message<?> beforeMessageSend(Message<?> message) {
-        OutgoingRabbitMQMetadata newMetadata = message.getMetadata(OutgoingRabbitMQMetadata.class)
-                .map(OutgoingRabbitMQMetadata::from)
-                .orElseGet(OutgoingRabbitMQMetadata::builder)
-                .withDeliveryMode(2)
-                .build();
-        return message.addMetadata(newMetadata);
+    public LobbyInboundOutgoingInterceptor() {
+        super(List.of(new PersistentRabbitMQOutgoingInterceptor()));
     }
 }

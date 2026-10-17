@@ -1,11 +1,9 @@
 package com.faforever.server.message.service;
 
-import com.faforever.server.message.client.ProtocolMessage;
+import com.faforever.server.message.client.PassthroughMessage;
 
 public record InboundPassthroughMessage(
         long sessionId,
         int playerId,
-        ProtocolMessage.Passthrough message
-) {
-
-}
+        PassthroughMessage message
+) {}

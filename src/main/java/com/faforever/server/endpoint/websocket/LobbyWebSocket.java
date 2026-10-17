@@ -36,7 +36,7 @@ public class LobbyWebSocket implements Serializable {
     }
 
     @OnTextMessage
-    public void onTextMessage(ProtocolMessage.Client message) {
+    public void onTextMessage(ProtocolMessage.Incoming message) {
         sessionHandler.handleMessage(message);
     }
 

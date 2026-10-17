@@ -29,27 +29,63 @@ quarkus:
 
 faf:
   use-policy-server: ${USE_POLICY_SERVER:false}
+  instance-id: ${HOSTNAME:local}
 
 mp:
   messaging:
     incoming:
       lobby-outbound:
         connector: smallrye-rabbitmq
-        virtual-host: ${RABBITMQ_VHOST:/faf-core}
+        exchange:
+          durable: true
+          name: message.outbound.client
         queue:
           durable: true
+          auto-delete: true
+          exclusive: true
+          name: message.outbound.client.${faf.instance-id}
       lobby-schema-registration:
         connector: smallrye-rabbitmq
-        virtual-host: ${RABBITMQ_VHOST:/faf-core}
+        exchange:
+          durable: true
+          name: register.schema
         queue:
           durable: true
+          auto-delete: true
+          exclusive: true
+          name: register.schema.${faf.instance-id}
+      player-active-request:
+        connector: smallrye-rabbitmq
+        exchange:
+          durable: true
+          name: request.connection
+        queue:
+          durable: true
+          auto-delete: true
+          exclusive: true
+          name: request.connection.${faf.instance-id}
     outgoing:
       lobby-inbound:
         connector: smallrye-rabbitmq
-        virtual-host: ${RABBITMQ_VHOST:/faf-core}
+        exchange:
+          durable: true
+          name: message.inbound.client
       player-connection:
         connector: smallrye-rabbitmq
-        virtual-host: ${RABBITMQ_VHOST:/faf-core}
+        exchange:
+          durable: true
+          name: register.connection
+      player-active-response:
+        connector: smallrye-rabbitmq
+        exchange:
+          durable: true
+          name: ""
+      lobby-schema-request:
+        connector: smallrye-rabbitmq
+        exchange:
+          durable: true
+          name: request.schema
+
   jwt:
     verify:
       issuer: ${HYDRA_TOKEN_ISSUER:http://ory-hydra:4444}
@@ -61,6 +97,7 @@ rabbitmq-host: ${RABBITMQ_HOST:localhost}
 rabbitmq-port: ${RABBITMQ_PORT:5672}
 rabbitmq-username: ${RABBITMQ_USER:faf-message-broker}
 rabbitmq-password: ${RABBITMQ_PASSWORD:banana}
+rabbitmq-virtual-host: ${RABBITMQ_VHOST:/faf-core}
 
 "%test":
   quarkus:

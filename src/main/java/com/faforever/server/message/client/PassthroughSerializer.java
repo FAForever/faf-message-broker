@@ -6,15 +6,15 @@ import tools.jackson.databind.SerializationContext;
 import tools.jackson.databind.ValueSerializer;
 import tools.jackson.databind.jsontype.TypeSerializer;
 
-public class PassthroughSerializer extends ValueSerializer<ProtocolMessage.Passthrough> {
+public class PassthroughSerializer extends ValueSerializer<PassthroughMessage> {
 
     @Override
-    public void serialize(ProtocolMessage.Passthrough value, JsonGenerator gen, SerializationContext ctxt) throws JacksonException {
+    public void serialize(PassthroughMessage value, JsonGenerator gen, SerializationContext ctxt) throws JacksonException {
         gen.writeTree(value.message());
     }
 
     @Override
-    public void serializeWithType(ProtocolMessage.Passthrough value, JsonGenerator gen, SerializationContext ctxt, TypeSerializer typeSer) throws JacksonException {
+    public void serializeWithType(PassthroughMessage value, JsonGenerator gen, SerializationContext ctxt, TypeSerializer typeSer) throws JacksonException {
         serialize(value, gen, ctxt);
     }
 }

@@ -5,7 +5,7 @@ import com.faforever.server.message.client.ProtocolMessage;
 
 public interface LobbyConnection {
 
-    void sendAndAwait(ProtocolMessage.Server message);
+    void sendAndAwait(ProtocolMessage.Outgoing message);
 
     void close();
 

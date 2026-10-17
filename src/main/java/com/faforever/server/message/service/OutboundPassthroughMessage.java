@@ -1,8 +1,8 @@
 package com.faforever.server.message.service;
 
-import com.faforever.server.message.client.ProtocolMessage;
+import com.faforever.server.message.client.PassthroughMessage;
 
 public record OutboundPassthroughMessage(
         OutboundTarget target,
-        ProtocolMessage.Passthrough message
+        PassthroughMessage message
 ) {}

@@ -1,110 +1,32 @@
 package com.faforever.server.message.client;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import org.jspecify.annotations.Nullable;
-import tools.jackson.databind.annotation.JsonSerialize;
-import tools.jackson.databind.node.ObjectNode;
-import tools.jackson.databind.node.StringNode;
 
-public sealed interface ProtocolMessage permits ProtocolMessage.Client, ProtocolMessage.Server {
+public sealed interface ProtocolMessage permits ProtocolMessage.Incoming, ProtocolMessage.Outgoing {
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "command", defaultImpl = Passthrough.class, visible = true)
+    String requestId();
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "command", defaultImpl = PassthroughMessage.class, visible = true)
     @JsonSubTypes(
             {
-                    @JsonSubTypes.Type(value = Connection.Ping.class, name = "ping"),
-                    @JsonSubTypes.Type(value = Connection.Pong.class, name = "pong"),
-                    @JsonSubTypes.Type(value = Connection.SessionResponse.class, name = "session"),
+                    @JsonSubTypes.Type(value = ConnectionMessage.Ping.class, name = "ping"),
+                    @JsonSubTypes.Type(value = ConnectionMessage.Pong.class, name = "pong"),
+                    @JsonSubTypes.Type(value = ConnectionMessage.SessionResponse.class, name = "session"),
+                    @JsonSubTypes.Type(value = ConnectionMessage.LoginFailureResponse.class, name = "authentication_failure"),
             }
     )
-    sealed interface Server extends ProtocolMessage permits Connection.Server, Passthrough {}
+    sealed interface Outgoing extends ProtocolMessage permits ConnectionMessage.Outgoing, PassthroughMessage {}
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "command", defaultImpl = Passthrough.class, visible = true)
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "command", defaultImpl = PassthroughMessage.class, visible = true)
     @JsonSubTypes(
             {
-                    @JsonSubTypes.Type(value = Connection.Ping.class, name = "ping"),
-                    @JsonSubTypes.Type(value = Connection.Pong.class, name = "pong"),
-                    @JsonSubTypes.Type(value = Connection.SessionRequest.class, name = "ask_session"),
-                    @JsonSubTypes.Type(value = Connection.AuthenticateRequest.class, name = "auth"),
+                    @JsonSubTypes.Type(value = ConnectionMessage.Ping.class, name = "ping"),
+                    @JsonSubTypes.Type(value = ConnectionMessage.Pong.class, name = "pong"),
+                    @JsonSubTypes.Type(value = ConnectionMessage.SessionRequest.class, name = "ask_session"),
+                    @JsonSubTypes.Type(value = ConnectionMessage.AuthenticateRequest.class, name = "auth"),
             }
     )
-    sealed interface Client extends ProtocolMessage permits Connection.Client, Passthrough {}
+    sealed interface Incoming extends ProtocolMessage permits ConnectionMessage.Incoming, PassthroughMessage {}
 
-    @JsonSerialize(using = PassthroughSerializer.class)
-    sealed interface Passthrough extends Server, Client {
-
-        ObjectNode message();
-
-        record Lobby(
-                String command,
-                ObjectNode message
-        ) implements Passthrough {}
-
-        record GPG(
-                String command,
-                ObjectNode message
-        ) implements Passthrough {
-            public static final String GAME_PASSTHROUGH_SCHEMA = """
-                                                                 {
-                                                                   "$schema": "https://json-schema.org/draft/2020-12/schema",
-                                                                   "type": "object",
-                                                                   "properties": {
-                                                                     "command": {
-                                                                       "type": "string"
-                                                                     },
-                                                                     "target": {
-                                                                       "const": "game"
-                                                                     },
-                                                                     "args": {
-                                                                       "type": "array",
-                                                                       "items": {}
-                                                                     }
-                                                                   },
-                                                                   "required": [
-                                                                     "command",
-                                                                     "target",
-                                                                     "args"
-                                                                   ],
-                                                                   "additionalProperties": false
-                                                                 }
-                                                                 """;
-        }
-
-        @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
-        static Passthrough of(ObjectNode message) {
-            String command = message.findValue("command").stringValue();
-            if (message.findValue("target") instanceof StringNode stringNode &&
-                stringNode.stringValue().equalsIgnoreCase("game")) {
-                return new GPG(command, message);
-            } else {
-                return new Lobby(command, message);
-            }
-        }
-    }
-
-    sealed interface Connection {
-
-        sealed interface Server extends Connection, ProtocolMessage.Server {}
-
-        sealed interface Client extends Connection, ProtocolMessage.Client {}
-
-        record Ping() implements Server, Client {}
-
-        record Pong() implements Server, Client {}
-
-        record SessionRequest(
-                @Nullable String userAgent,
-                @Nullable String version
-        ) implements Client {}
-
-        record AuthenticateRequest(
-                String token,
-                String uniqueId
-        ) implements Client {}
-
-        record SessionResponse(
-                long session
-        ) implements Server {}
-    }
 }
