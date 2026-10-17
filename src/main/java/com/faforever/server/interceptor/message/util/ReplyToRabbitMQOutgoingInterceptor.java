@@ -1,4 +1,4 @@
-package com.faforever.server.message.interceptor.util;
+package com.faforever.server.interceptor.message.util;
 
 import io.smallrye.reactive.messaging.OutgoingInterceptor;
 import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;

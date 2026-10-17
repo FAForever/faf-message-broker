@@ -1,13 +1,15 @@
-package com.faforever.server.message;
+package com.faforever.server.endpoint.session;
 
 import com.faforever.server.endpoint.connection.LobbyConnection;
 import com.faforever.server.endpoint.connection.UserAgent;
+import com.faforever.server.message.MessageBroker;
 import com.faforever.server.message.client.ConnectionMessage;
 import com.faforever.server.message.client.PassthroughMessage;
 import com.faforever.server.message.client.ProtocolMessage;
 import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.policy.PolicyClient;
 import com.faforever.server.policy.PolicyContents;
+import org.jspecify.annotations.NullMarked;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 import io.quarkus.test.InjectMock;
@@ -212,6 +214,7 @@ class SessionHandlerTest {
         return PassthroughMessage.of(node);
     }
 
+    @NullMarked
     private static class TestLobbyConnection implements LobbyConnection {
 
         private final List<ProtocolMessage.Outgoing> sentMessages = new ArrayList<>();

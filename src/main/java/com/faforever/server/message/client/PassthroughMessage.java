@@ -7,8 +7,9 @@ import tools.jackson.databind.node.StringNode;
 
 import java.util.UUID;
 
-// PassthroughMessage needs a custom serializer so that the internal message is used as the value to serialize
-// This is necessary because @JsonVaule doesn't work on class when it is part of a polymorphic hierarchy
+// PassthroughMessage needs a custom serializer so that the internal message is used as the value to serialize.
+// This is necessary because @JsonValue doesn't work on a class when it is part of a polymorphic hierarchy.
+// When it is part of a polymorphic hierarchy Jackson always outputs the value as an array [{FQCN}, {JSONVVALUE}]
 @JsonSerialize(using = PassthroughSerializer.class)
 sealed public interface PassthroughMessage extends ProtocolMessage.Outgoing, ProtocolMessage.Incoming {
 

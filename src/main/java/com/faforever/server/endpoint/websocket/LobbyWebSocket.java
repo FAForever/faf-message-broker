@@ -1,6 +1,6 @@
 package com.faforever.server.endpoint.websocket;
 
-import com.faforever.server.message.SessionHandler;
+import com.faforever.server.endpoint.session.SessionHandler;
 import com.faforever.server.message.client.ProtocolMessage;
 import io.quarkus.websockets.next.OnClose;
 import io.quarkus.websockets.next.OnError;

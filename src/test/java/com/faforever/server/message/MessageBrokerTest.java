@@ -1,14 +1,17 @@
 package com.faforever.server.message;
 
 import com.faforever.server.domain.LobbyCommandSchemaRepository;
+import com.faforever.server.endpoint.session.SessionHandler;
+import com.faforever.server.message.client.FailedMessage;
 import com.faforever.server.message.client.PassthroughMessage;
 import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.message.service.LobbySchemaDetails;
 import com.faforever.server.message.service.OutboundPassthroughMessage;
 import com.faforever.server.message.service.OutboundTarget;
-import com.faforever.server.message.service.PlayerSessionStatus;
+import com.faforever.server.message.service.PlayerSessionState;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.component.QuarkusComponentTest;
+import io.quarkus.test.component.TestConfigProperty;
 import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
@@ -26,10 +29,9 @@ import tools.jackson.databind.node.NullNode;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.node.StringNode;
 
-import java.util.Collection;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -37,8 +39,8 @@ import static org.mockito.ArgumentCaptor.captor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @QuarkusComponentTest
@@ -68,7 +70,7 @@ class MessageBrokerTest {
     @InjectMock
     private Emitter<InboundPassthroughMessage> lobbyMessageEmitter;
     @InjectMock
-    private Emitter<PlayerSessionStatus> playerConnectionEmitter;
+    private Emitter<PlayerSessionState> playerConnectionEmitter;
     @InjectMock
     private LobbyCommandSchemaRepository lobbyCommandSchemaRepository;
 
@@ -84,32 +86,64 @@ class MessageBrokerTest {
         }
 
         @Test
+        @TestConfigProperty(key = "faf.player-session-status-refresh-period", value = "1m")
         void testRegistration() {
             messageBroker.registerSession(PLAYER_ID, sessionHandler);
 
-            Message<Collection<PlayerSessionStatus>> activeMessage = messageBroker.handlePlayerSessionRequest(
-                    Message.of(Map.of(), Metadata.of(OutgoingRabbitMQMetadata.builder()
-                                                                             .withReplyTo("test.queue")
-                                                                             .build()
-                                                                             .toIncomingMetadata("test", false))));
-            assertEquals("test.queue", activeMessage.getMetadata(OutgoingRabbitMQMetadata.class).map(OutgoingRabbitMQMetadata::getRoutingKey).orElseThrow());
-            assertEquals(Set.of(new PlayerSessionStatus(PLAYER_ID, SESSION_ID_1, PlayerSessionStatus.State.EXISTING)), activeMessage.getPayload());
+            verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1,
+                                                                        new PlayerSessionState.State.New(Duration.ofMinutes(2))));
+
+            messageBroker.sendPlayerSessionUpdates();
+
+            verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1,
+                                                                        new PlayerSessionState.State.Existing(Duration.ofMinutes(2))));
 
             messageBroker.unregisterSession(PLAYER_ID, sessionHandler);
 
-            ArgumentCaptor<PlayerSessionStatus> messageCaptor = captor();
+            verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1,
+                                                                        new PlayerSessionState.State.Gone()));
+        }
 
-            verify(playerConnectionEmitter, times(2)).send(messageCaptor.capture());
+        @Test
+        @TestConfigProperty(key = "faf.player-session-status-refresh-period", value = "1m")
+        void testRequestedPlayerStatusPlayerOnline() {
+            messageBroker.registerSession(PLAYER_ID, sessionHandler);
 
-            List<PlayerSessionStatus> allValues = messageCaptor.getAllValues();
+            messageBroker.handlePlayerSessionRequest(Message.of(Map.of(), Metadata.of(OutgoingRabbitMQMetadata.builder()
+                                                                                                              .withReplyTo(
+                                                                                                                      "test.queue")
+                                                                                                              .build()
+                                                                                                              .toIncomingMetadata(
+                                                                                                                      "test",
+                                                                                                                      false))));
 
-            PlayerSessionStatus connectedMessage = allValues.getFirst();
-            assertEquals(new PlayerSessionStatus(PLAYER_ID, SESSION_ID_1, PlayerSessionStatus.State.NEW),
-                         connectedMessage);
+            ArgumentCaptor<Message<PlayerSessionState>> metadataMessageCaptor = captor();
 
-            PlayerSessionStatus disconnectedMessage = allValues.getLast();
-            assertEquals(new PlayerSessionStatus(PLAYER_ID, SESSION_ID_1, PlayerSessionStatus.State.GONE),
-                         disconnectedMessage);
+            verify(playerConnectionEmitter).send(metadataMessageCaptor.capture());
+
+            Message<PlayerSessionState> activeMessage = metadataMessageCaptor.getValue();
+
+            assertEquals("test.queue", activeMessage.getMetadata(OutgoingRabbitMQMetadata.class)
+                                                    .map(OutgoingRabbitMQMetadata::getRoutingKey)
+                                                    .orElseThrow());
+            assertEquals(new PlayerSessionState(PLAYER_ID, SESSION_ID_1,
+                                                new PlayerSessionState.State.Existing(Duration.ofMinutes(2))),
+                         activeMessage.getPayload());
+        }
+
+
+        @Test
+        @TestConfigProperty(key = "faf.player-session-status-refresh-period", value = "1m")
+        void testRequestedPlayerStatusNoPlayerOnline() {
+            messageBroker.handlePlayerSessionRequest(Message.of(Map.of(), Metadata.of(OutgoingRabbitMQMetadata.builder()
+                                                                                                              .withReplyTo(
+                                                                                                                      "test.queue")
+                                                                                                              .build()
+                                                                                                              .toIncomingMetadata(
+                                                                                                                      "test",
+                                                                                                                      false))));
+
+            verifyNoInteractions(playerConnectionEmitter);
         }
 
     }
@@ -117,10 +151,22 @@ class MessageBrokerTest {
     @Nested
     class Inbound {
 
+        private final SessionHandler sessionHandler = mock();
+
+        @BeforeEach
+        void setup() {
+            when(sessionHandler.playerId()).thenReturn(PLAYER_ID);
+            when(sessionHandler.sessionId()).thenReturn(SESSION_ID_1);
+
+            messageBroker.registerSession(PLAYER_ID, sessionHandler);
+        }
+
+
         @Test
         void testUnknownLobbyMessage() {
-            assertThrows(IllegalArgumentException.class, () -> messageBroker.handleInboundMessage(
-                    createInboundMessage(Map.of("command", new StringNode(COMMAND)))));
+            messageBroker.handleInboundMessage(createInboundMessage(Map.of("command", new StringNode(COMMAND), "request_id", new StringNode("12345"))));
+            verifyNoInteractions(lobbyMessageEmitter);
+            verify(sessionHandler).sendMessage(new FailedMessage("12345", "Invalid message received", "message.invalid"));
         }
 
         @Test
@@ -129,8 +175,13 @@ class MessageBrokerTest {
                     List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA,
                                                    "route")));
 
-            assertThrows(IllegalArgumentException.class, () -> messageBroker.handleInboundMessage(
-                    createInboundMessage(Map.of("command", new StringNode(COMMAND), "key", NullNode.getInstance()))));
+            messageBroker.loadSchemas();
+
+            messageBroker.handleInboundMessage(
+                    createInboundMessage(Map.of("command", new StringNode(COMMAND), "key", NullNode.getInstance(), "request_id", new StringNode("12345"))));
+
+            verifyNoInteractions(lobbyMessageEmitter);
+            verify(sessionHandler).sendMessage(new FailedMessage("12345", "Invalid message received", "message.invalid"));
         }
 
         @Test
@@ -138,6 +189,8 @@ class MessageBrokerTest {
             when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
                     List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA,
                                                    "route")));
+
+            messageBroker.loadSchemas();
 
             InboundPassthroughMessage message = createInboundMessage(Map.of("command", new StringNode(COMMAND)));
             messageBroker.handleInboundMessage(message);
@@ -157,8 +210,11 @@ class MessageBrokerTest {
 
         @Test
         void testInvalidGameMessage() {
-            assertThrows(IllegalArgumentException.class, () -> messageBroker.handleInboundMessage(
-                    createInboundMessage(Map.of("command", new StringNode("Test"), "target", new StringNode("game")))));
+            messageBroker.handleInboundMessage(
+                    createInboundMessage(Map.of("command", new StringNode("Test"), "target", new StringNode("game"))));
+
+            verifyNoInteractions(lobbyMessageEmitter);
+            verify(sessionHandler).sendMessage(new FailedMessage("", "Invalid message received", "message.invalid"));
         }
 
         @Test

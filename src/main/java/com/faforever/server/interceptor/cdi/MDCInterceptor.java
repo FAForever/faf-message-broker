@@ -1,6 +1,6 @@
 package com.faforever.server.interceptor.cdi;
 
-import com.faforever.server.message.SessionHandler;
+import com.faforever.server.endpoint.session.SessionHandler;
 import com.faforever.server.message.client.ProtocolMessage;
 import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.message.service.OutboundPassthroughMessage;
@@ -27,11 +27,11 @@ public class MDCInterceptor {
         boolean hasSession = false;
         boolean hasPlayer = false;
         if (context.getTarget() instanceof SessionHandler sessionHandler) {
-            MDC.pushByKey(SESSION_ID, Long.toString(sessionHandler.sessionId()));
+            MDC.put(SESSION_ID, Long.toString(sessionHandler.sessionId()));
             hasSession = true;
             Integer playerId = sessionHandler.playerId();
             if (playerId != null) {
-                MDC.pushByKey(PLAYER_ID, Integer.toString(playerId));
+                MDC.put(PLAYER_ID, Integer.toString(playerId));
                 hasPlayer = true;
             }
         }
@@ -40,38 +40,38 @@ public class MDCInterceptor {
         if (parameters.length == 1) {
             switch (parameters[0]) {
                 case ProtocolMessage protocolMessage -> {
-                    MDC.pushByKey(REQUEST_ID, protocolMessage.requestId());
-                    MDC.pushByKey(COMMAND, protocolMessage.command());
+                    MDC.put(REQUEST_ID, protocolMessage.requestId());
+                    MDC.put(COMMAND, protocolMessage.command());
                     hasMessage = true;
                 }
                 case InboundPassthroughMessage inboundPassthroughMessage -> {
-                    MDC.pushByKey(REQUEST_ID, inboundPassthroughMessage.message().requestId());
-                    MDC.pushByKey(COMMAND, inboundPassthroughMessage.message().command());
+                    MDC.put(REQUEST_ID, inboundPassthroughMessage.message().requestId());
+                    MDC.put(COMMAND, inboundPassthroughMessage.message().command());
                     hasMessage = true;
                     if (!hasSession) {
-                        MDC.pushByKey(SESSION_ID, String.valueOf(inboundPassthroughMessage.sessionId()));
+                        MDC.put(SESSION_ID, String.valueOf(inboundPassthroughMessage.sessionId()));
                         hasSession = true;
                     }
 
                     if (!hasPlayer) {
-                        MDC.pushByKey(PLAYER_ID, String.valueOf(inboundPassthroughMessage.playerId()));
+                        MDC.put(PLAYER_ID, String.valueOf(inboundPassthroughMessage.playerId()));
                         hasPlayer = true;
                     }
                 }
                 case OutboundPassthroughMessage outboundPassthroughMessage -> {
-                    MDC.pushByKey(REQUEST_ID, outboundPassthroughMessage.message().requestId());
-                    MDC.pushByKey(COMMAND, outboundPassthroughMessage.message().command());
+                    MDC.put(REQUEST_ID, outboundPassthroughMessage.message().requestId());
+                    MDC.put(COMMAND, outboundPassthroughMessage.message().command());
                     hasMessage = true;
                     switch (outboundPassthroughMessage.target()) {
                         case OutboundTarget.Player(int playerId) -> {
                             if (!hasPlayer) {
-                                MDC.put(PLAYER_ID, String.valueOf(playerId));
+                                MDC.pushByKey(PLAYER_ID, String.valueOf(playerId));
                                 hasPlayer = true;
                             }
                         }
                         case OutboundTarget.Session(long sessionId) -> {
                             if (!hasSession) {
-                                MDC.put(SESSION_ID, String.valueOf(sessionId));
+                                MDC.pushByKey(SESSION_ID, String.valueOf(sessionId));
                                 hasSession = true;
                             }
                         }
@@ -86,13 +86,14 @@ public class MDCInterceptor {
             return context.proceed();
         } finally {
             if (hasSession) {
-                MDC.popByKey(SESSION_ID);
+                MDC.remove(SESSION_ID);
             }
             if (hasPlayer) {
-                MDC.popByKey(PLAYER_ID);
+                MDC.remove(PLAYER_ID);
             }
             if (hasMessage) {
-                MDC.popByKey(COMMAND);
+                MDC.remove(COMMAND);
+                MDC.remove(REQUEST_ID);
             }
         }
     }

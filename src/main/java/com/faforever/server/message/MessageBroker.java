@@ -1,13 +1,17 @@
 package com.faforever.server.message;
 
+import com.faforever.server.config.FAFProperties;
 import com.faforever.server.domain.LobbyCommandSchemaRepository;
+import com.faforever.server.endpoint.session.SessionHandler;
 import com.faforever.server.interceptor.cdi.MDCPopulated;
+import com.faforever.server.message.client.FailedMessage;
 import com.faforever.server.message.client.PassthroughMessage;
+import com.faforever.server.message.client.ProtocolMessage;
 import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.message.service.LobbySchemaDetails;
 import com.faforever.server.message.service.OutboundPassthroughMessage;
 import com.faforever.server.message.service.OutboundTarget;
-import com.faforever.server.message.service.PlayerSessionStatus;
+import com.faforever.server.message.service.PlayerSessionState;
 import com.faforever.server.micrometer.ProtocolMessageCommandResolver;
 import com.github.victools.jsonschema.generator.SchemaKeyword;
 import com.github.victools.jsonschema.generator.SchemaVersion;
@@ -18,8 +22,10 @@ import com.networknt.schema.SchemaLocation;
 import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
 import io.micrometer.core.annotation.Counted;
+import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.aop.MeterTag;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.quarkus.scheduler.Scheduled;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import io.smallrye.reactive.messaging.rabbitmq.IncomingRabbitMQMetadata;
 import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
@@ -31,28 +37,28 @@ import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.eclipse.microprofile.reactive.messaging.Metadata;
-import org.eclipse.microprofile.reactive.messaging.Outgoing;
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.node.StringNode;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 @JBossLog
 @ApplicationScoped
 @RunOnVirtualThread
 public class MessageBroker {
 
+    private final FAFProperties fafProperties;
+
     private final Emitter<Map<String, String>> schemaRequestEmitter;
     private final Emitter<InboundPassthroughMessage> lobbyMessageEmitter;
-    private final Emitter<PlayerSessionStatus> playerConnectionEmitter;
+    private final Emitter<PlayerSessionState> playerConnectionEmitter;
 
     private final LobbyCommandSchemaRepository lobbyCommandSchemaRepository;
-
 
     private final Map<LobbySchemaKey, LobbySchemaRoute> lobbySchemas;
     private final Map<Long, SessionHandler> sessionHandlerMap;
@@ -61,19 +67,21 @@ public class MessageBroker {
 
     private final SchemaRegistry schemaRegistry = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12);
 
-    public MessageBroker(@Channel("lobby-schema-request") Emitter<Map<String, String>> schemaRequestEmitter,
+    public MessageBroker(FAFProperties fafProperties,
+                         @Channel("lobby-schema-request") Emitter<Map<String, String>> schemaRequestEmitter,
                          @Channel("lobby-inbound") Emitter<InboundPassthroughMessage> lobbyMessageEmitter,
-                         @Channel("player-connection") Emitter<PlayerSessionStatus> playerConnectionEmitter,
+                         @Channel("player-connection") Emitter<PlayerSessionState> playerConnectionEmitter,
                          LobbyCommandSchemaRepository lobbyCommandSchemaRepository, MeterRegistry meterRegistry) {
+        this.fafProperties = fafProperties;
         this.schemaRequestEmitter = schemaRequestEmitter;
         this.lobbyMessageEmitter = lobbyMessageEmitter;
         this.playerConnectionEmitter = playerConnectionEmitter;
         this.lobbyCommandSchemaRepository = lobbyCommandSchemaRepository;
         this.gameSchema = schemaRegistry.getSchema(SchemaLocation.of("gpg"),
                                                    PassthroughMessage.GPG.GAME_PASSTHROUGH_SCHEMA, InputFormat.JSON);
-        sessionHandlerMap = meterRegistry.gaugeMapSize("sessions", Set.of(), new ConcurrentHashMap<>());
-        playerSessionMap = meterRegistry.gaugeMapSize("players", Set.of(), new ConcurrentHashMap<>());
-        lobbySchemas = meterRegistry.gaugeMapSize("schema", Set.of(), new ConcurrentHashMap<>());
+        sessionHandlerMap = meterRegistry.gaugeMapSize("faf.sessions", Set.of(), new ConcurrentHashMap<>());
+        playerSessionMap = meterRegistry.gaugeMapSize("faf.players", Set.of(), new ConcurrentHashMap<>());
+        lobbySchemas = meterRegistry.gaugeMapSize("faf.schemas", Set.of(), new ConcurrentHashMap<>());
     }
 
     @PostConstruct
@@ -83,7 +91,7 @@ public class MessageBroker {
     }
 
     @Incoming("lobby-schema-registration")
-    @Counted("schema.registrations")
+    @Counted("faf.schema.registrations")
     void handleLobbySchemaRegistration(LobbySchemaDetails lobbySchemaDetails) {
         lobbyCommandSchemaRepository.save(lobbySchemaDetails);
         registerSchema(lobbySchemaDetails);
@@ -100,30 +108,51 @@ public class MessageBroker {
         lobbySchemas.put(lobbySchemaKey, new LobbySchemaRoute(lobbySchemaDetails.route(), schema));
     }
 
-    @Incoming("player-active-request")
-    @Outgoing("player-active-response")
-    @Counted("player.session.requests")
-    Message<Collection<PlayerSessionStatus>> handlePlayerSessionRequest(Message<Map<String, String>> message) {
-        Set<PlayerSessionStatus> activeSessions = playerSessionMap.entrySet()
-                                                                  .stream()
-                                                                  .flatMap(entry -> entry.getValue()
-                                                                                         .stream()
-                                                                                         .map(sessionId -> new PlayerSessionStatus(
-                                                                                                 entry.getKey(),
-                                                                                                 sessionId,
-                                                                                                 PlayerSessionStatus.State.EXISTING)))
-                                                                  .collect(Collectors.toSet());
 
-        String replyToQueue = message.getMetadata(IncomingRabbitMQMetadata.class).map(
-                IncomingRabbitMQMetadata::getReplyTo).orElse("");
-        return Message.of(activeSessions,
-                          Metadata.of(OutgoingRabbitMQMetadata.builder().withRoutingKey(replyToQueue).build()));
+    @Timed(value = "faf.player.updates", histogram = true)
+    @Scheduled(every = "${faf.player-session-status-refresh-period}",
+               skipExecutionIf = Scheduled.ApplicationNotRunning.class,
+               concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    void sendPlayerSessionUpdates() {
+        playerSessionMap.entrySet()
+                        .stream()
+                        .flatMap(entry -> entry.getValue()
+                                               .stream()
+                                               .map(sessionId -> new PlayerSessionState(entry.getKey(), sessionId,
+                                                                                        new PlayerSessionState.State.Existing(
+                                                                                                fafProperties.playerSessionStatusExpiry()))))
+                        .forEach(playerConnectionEmitter::send);
     }
 
-    void handleInboundMessage(InboundPassthroughMessage inboundLobbyMessage) {
+    @Incoming("player-active-request")
+    @Counted("faf.player.session.requests")
+    CompletionStage<Void> handlePlayerSessionRequest(Message<Map<String, String>> message) {
+        Metadata metadata = message.getMetadata(IncomingRabbitMQMetadata.class).map(
+                IncomingRabbitMQMetadata::getReplyTo).map(replyTo -> OutgoingRabbitMQMetadata.builder().withRoutingKey(
+                replyTo).withExchange("").build()).map(Metadata::of).orElse(Metadata.of());
+        playerSessionMap.entrySet()
+                        .stream()
+                        .flatMap(entry -> entry.getValue()
+                                               .stream()
+                                               .map(sessionId -> new PlayerSessionState(entry.getKey(), sessionId,
+                                                                                        new PlayerSessionState.State.Existing(
+                                                                                                fafProperties.playerSessionStatusExpiry()))))
+                        .map(playerSessionState -> Message.of(playerSessionState, metadata))
+                        .forEach(playerConnectionEmitter::send);
+        return message.ack();
+    }
+
+    public void handleInboundMessage(InboundPassthroughMessage inboundLobbyMessage) {
         switch (inboundLobbyMessage.message()) {
             case PassthroughMessage.Lobby lobbyPassthrough -> {
                 String route = validateLobbyPassthrough(lobbyPassthrough);
+                if (route == null) {
+                    sendMessageToSession(inboundLobbyMessage.sessionId(),
+                                         new FailedMessage(inboundLobbyMessage.message().requestId(),
+                                                           "Invalid message received", "message.invalid"));
+                    return;
+                }
+
                 String routingKey = "lobby." + route + "." + lobbyPassthrough.command();
                 final OutgoingRabbitMQMetadata metadata = OutgoingRabbitMQMetadata.builder()
                                                                                   .withRoutingKey(routingKey)
@@ -131,7 +160,13 @@ public class MessageBroker {
                 lobbyMessageEmitter.send(Message.of(inboundLobbyMessage, Metadata.of(metadata)));
             }
             case PassthroughMessage.GPG gpgPassthrough -> {
-                validateGPGPassthrough(gpgPassthrough);
+                if (!validateGPGPassthrough(gpgPassthrough)) {
+                    sendMessageToSession(inboundLobbyMessage.sessionId(),
+                                         new FailedMessage(inboundLobbyMessage.message().requestId(),
+                                                           "Invalid message received", "message.invalid"));
+                    return;
+                }
+
                 String routingKey = "gpg." + gpgPassthrough.command();
                 final OutgoingRabbitMQMetadata metadata = OutgoingRabbitMQMetadata.builder()
                                                                                   .withRoutingKey(routingKey)
@@ -141,43 +176,46 @@ public class MessageBroker {
         }
     }
 
-    private String validateLobbyPassthrough(PassthroughMessage.Lobby lobbyPassthrough) {
+    private @Nullable String validateLobbyPassthrough(PassthroughMessage.Lobby lobbyPassthrough) {
         String command = lobbyPassthrough.command();
         LobbySchemaRoute lobbySchemaRoute = lobbySchemas.get(
                 new LobbySchemaKey(command, LobbySchemaDetails.Direction.INBOUND));
         if (lobbySchemaRoute == null) {
-            throw new IllegalArgumentException("Unknown message type");
+            LOG.warn("Unknown message type");
+            return null;
         }
 
         Schema schema = lobbySchemaRoute.schema();
 
         List<Error> errors = schema.validate(lobbyPassthrough.message());
         if (!errors.isEmpty()) {
-            throw new IllegalArgumentException("Invalid message" + errors);
+            LOG.warn("Invalid message received: " + errors);
+            return null;
         }
 
         return lobbySchemaRoute.route();
     }
 
-    private void validateGPGPassthrough(PassthroughMessage.GPG gpgPassthrough) {
+    private boolean validateGPGPassthrough(PassthroughMessage.GPG gpgPassthrough) {
         List<Error> errors = gameSchema.validate(gpgPassthrough.message());
         if (!errors.isEmpty()) {
-            throw new IllegalArgumentException("Invalid message");
+            LOG.warn("Invalid message received: " + errors);
+            return false;
         }
+        return true;
     }
 
     @MDCPopulated
     @Incoming("lobby-outbound")
-    @Counted("messages.outbound")
-    void handleOutboundMessage(@MeterTag(
-            value = "command", resolver = ProtocolMessageCommandResolver.class
-    ) OutboundPassthroughMessage outboundPassthroughMessage) {
-            PassthroughMessage message = outboundPassthroughMessage.message();
-            switch (outboundPassthroughMessage.target()) {
-                case OutboundTarget.Session(long sessionId) -> sendMessageToSession(sessionId, message);
-                case OutboundTarget.Player(int playerId) -> sendMessageToPlayer(playerId, message);
-                case OutboundTarget.All() -> sendMessageToAll(message);
-            }
+    @Timed(value = "faf.messages.outbound", histogram = true)
+    void handleOutboundMessage(@MeterTag(value = "command",
+                                         resolver = ProtocolMessageCommandResolver.class) OutboundPassthroughMessage outboundPassthroughMessage) {
+        PassthroughMessage message = outboundPassthroughMessage.message();
+        switch (outboundPassthroughMessage.target()) {
+            case OutboundTarget.Session(long sessionId) -> sendMessageToSession(sessionId, message);
+            case OutboundTarget.Player(int playerId) -> sendMessageToPlayer(playerId, message);
+            case OutboundTarget.All() -> sendMessageToAll(message);
+        }
     }
 
     private void sendMessageToAll(PassthroughMessage message) {
@@ -194,7 +232,7 @@ public class MessageBroker {
         playerSessions.forEach(sessionId -> sendMessageToSession(sessionId, message));
     }
 
-    private void sendMessageToSession(long sessionId, PassthroughMessage message) {
+    private void sendMessageToSession(long sessionId, ProtocolMessage.Outgoing message) {
         SessionHandler sessionHandler = sessionHandlerMap.get(sessionId);
         if (sessionHandler == null) {
             LOG.warn("No active session for session id");
@@ -210,7 +248,7 @@ public class MessageBroker {
         }
     }
 
-    void registerSession(int playerId, SessionHandler sessionHandler) {
+    public void registerSession(int playerId, SessionHandler sessionHandler) {
         LOG.info("Session registered");
         long sessionId = sessionHandler.sessionId();
         SessionHandler mappedSessionHandler = sessionHandlerMap.putIfAbsent(sessionId, sessionHandler);
@@ -225,13 +263,14 @@ public class MessageBroker {
             sessions.add(sessionId);
             return sessions;
         });
-        playerConnectionEmitter.send(new PlayerSessionStatus(playerId, sessionId, PlayerSessionStatus.State.NEW));
+        playerConnectionEmitter.send(new PlayerSessionState(playerId, sessionId, new PlayerSessionState.State.New(
+                fafProperties.playerSessionStatusExpiry())));
     }
 
-    void unregisterSession(int playerId, SessionHandler sessionHandler) {
+    public void unregisterSession(int playerId, SessionHandler sessionHandler) {
         LOG.info("Session unregistered");
         long sessionId = sessionHandler.sessionId();
-        playerConnectionEmitter.send(new PlayerSessionStatus(playerId, sessionId, PlayerSessionStatus.State.GONE));
+        playerConnectionEmitter.send(new PlayerSessionState(playerId, sessionId, new PlayerSessionState.State.Gone()));
 
         if (!sessionHandlerMap.remove(sessionId, sessionHandler)) {
             LOG.warn("Session controller not associated with session");

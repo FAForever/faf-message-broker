@@ -32,8 +32,9 @@ Built on Quarkus and Java 25 with virtual threads, it bridges real-time client W
 
 1. **Client Connectivity**: Manages client lifecycle, session establishment, user-agent detection, and keepalive pings over WebSockets.
 2. **Authentication & Policy Validation**: Verifies client JWT tokens against Ory Hydra JWKS and optionally checks client connections against a policy server.
-3. **Dynamic Schema Validation**: Enforces strict JSON Schema (Draft 2020-12) validation for all inbound lobby commands and GPG game passthrough messages before dispatching them downstream.
-4. **Targeted Message Distribution**: Delivers outbound messages from backend services to individual sessions, specific players across sessions, or broadcast to all active connections.
+3. **Dynamic Schema Validation & Error Reporting**: Enforces strict JSON Schema (Draft 2020-12) validation for all inbound lobby commands and GPG game passthrough messages before dispatching them downstream. Invalid messages or unregistered commands return an immediate `failed_message` response to the client.
+4. **Active Player & Session Tracking**: Maintains player-to-session mappings, emits periodic session heartbeats, and answers active player queries from backend microservices via RabbitMQ.
+5. **Targeted Message Distribution**: Delivers outbound messages from backend services to individual sessions, specific players across sessions, or broadcast to all active connections.
 
 ```
 +--------------------+        WebSocket (Port 8003)        +------------------------+
@@ -55,11 +56,16 @@ Built on Quarkus and Java 25 with virtual threads, it bridges real-time client W
 - **Virtual Thread Concurrency**: Utilizes Java 25 virtual threads (`@RunOnVirtualThread`) for scalable connection handling.
 - **Bi-directional Passthrough & Routing**:
   - Inbound lobby and GPG (`target: game`) messages validated and published to RabbitMQ.
+  - Inbound messages failing validation or lacking registered schemas trigger a structured `failed_message` client response.
   - Outbound messages routed by target criteria: `Session(sessionId)`, `Player(playerId)`, or `All()`.
 - **Dynamic & Persisted Schema Registry**:
+  - Requests registered schemas on startup from backend services via RabbitMQ (`lobby-schema-request`).
   - Automatically compiles and registers schema definitions on startup.
   - Dynamically registers new schemas via RabbitMQ (`lobby-schema-registration`).
   - Persists schemas in PostgreSQL (`lobby_command_schema` table) via Flyway migrations.
+- **Player Session & State Tracking**:
+  - Emits real-time connection lifecycle events (`new`, `existing`, `gone`) with TTL expiry to RabbitMQ (`player-connection`).
+  - Responds to on-demand active player session requests via RabbitMQ (`player-active-request`) using RPC reply-to routing.
 - **Zero-Downtime Session Management**: Thread-safe concurrent session maps tracking player-to-session relationships.
 - **Strict Code Quality & Null Safety**: Enforced with Error Prone and NullAway in JSpecify mode.
 
@@ -83,19 +89,42 @@ Built on Quarkus and Java 25 with virtual threads, it bridges real-time client W
 ### WebSocket Endpoints
 
 - **Path**: `/` (Default port: `8003`)
-- **Connection Handshake**:
+- **Connection Handshake & Lifecycle**:
   1. `ask_session` (`Message.Connection.SessionRequest`): Client sends agent and version, receives a generated `session` ID (`Message.Connection.SessionResponse`).
   2. `auth` (`Message.Connection.AuthenticateRequest`): Client submits JWT token and unique machine ID. Token is parsed to obtain `playerId`, verified with Hydra, and checked against the policy server (if enabled).
   3. `ping` / `pong`: Bi-directional heartbeat keepalive messages.
-  4. **Passthrough Messages**: Inbound commands (`Lobby` or `GPG`) routed after authentication.
+  4. **Passthrough Messages**: Inbound commands (`Lobby` or `GPG`) routed after authentication. Inbound messages are validated against registered JSON schemas before dispatching downstream.
+  5. **Validation Error Reporting (`failed_message`)**: If an inbound message fails schema validation or specifies an unknown command, the broker rejects the message and sends a `failed_message` (`ProtocolMessage.Outgoing`) directly back to the client session over WebSocket:
+     ```json
+     {
+       "command": "failed_message",
+       "request_id": "<request_id_from_client_or_null>",
+       "message": "Invalid message received",
+       "message_key": "message.invalid"
+     }
+     ```
+     Registered lobby schemas dynamically include an optional `request_id` property, allowing clients to correlate validation error responses with specific outbound requests.
 
 ### RabbitMQ Channels
 
-| Channel | Direction | VHost | Description |
-| :--- | :--- | :--- | :--- |
-| `lobby-inbound` | Outgoing (Broker &rarr; RabbitMQ) | `/faf-core` | Transmits validated inbound client messages with routing keys matching command names or `gpg`. |
-| `lobby-outbound` | Incoming (RabbitMQ &rarr; Broker) | `/faf-core` | Receives outbound messages targeted to a session, player, or all players. |
-| `lobby-schema-registration` | Incoming (RabbitMQ &rarr; Broker) | `/faf-core` | Receives runtime schema registrations to dynamically update validation rules. |
+| Channel | Direction | VHost | Target Exchange / Queue | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `lobby-inbound` | Outgoing (Broker &rarr; RabbitMQ) | `/faf-core` | `message.inbound.client` | Transmits validated inbound client messages with routing keys matching `lobby.<route>.<command>` or `gpg.<command>`. |
+| `lobby-outbound` | Incoming (RabbitMQ &rarr; Broker) | `/faf-core` | `message.outbound.client`<br>`message.outbound.client.${faf.instance-id}` | Receives outbound messages targeted to a session (`Session`), player (`Player`), or broadcast (`All`). |
+| `lobby-schema-request` | Outgoing (Broker &rarr; RabbitMQ) | `/faf-core` | `request.schema` | Dispatches a schema request on broker startup with `reply_to` pointing to the instance's schema registration queue. |
+| `lobby-schema-registration` | Incoming (RabbitMQ &rarr; Broker) | `/faf-core` | `register.schema`<br>`register.schema.${faf.instance-id}` | Receives runtime schema registrations to dynamically update validation rules and persist them to PostgreSQL. |
+| `player-active-request` | Incoming (RabbitMQ &rarr; Broker) | `/faf-core` | `request.connection`<br>`request.connection.${faf.instance-id}` | Receives queries for all currently active player sessions. The broker responds by publishing current player connection states with reply-to routing. |
+| `player-connection` | Outgoing (Broker &rarr; RabbitMQ) | `/faf-core` | `register.connection` | Broadcasts player session lifecycle states (`new`, `existing` keepalives / query responses, and `gone`) with TTL expiry to backend services. |
+
+#### Player Session Tracking & Active Player Requests
+
+- **Connection Lifecycle Events**:
+  - **`new`**: Emitted via `player-connection` when a player authenticates and establishes a new session. Includes TTL expiry duration (`faf.player-session-status-refresh-period * 2`).
+  - **`gone`**: Emitted via `player-connection` when a session disconnects or is unregistered.
+  - **`existing`**: Periodically broadcast via `player-connection` as a keepalive heartbeat for all active sessions on a scheduled interval (`faf.player-session-status-refresh-period`, default `1m`).
+- **Active Player Query (RPC)**:
+  - Backend services can request an immediate snapshot of active players by publishing a message to `request.connection` (`player-active-request`) with a RabbitMQ `replyTo` queue header.
+  - The broker handles the request by iterating over all active player sessions and publishing `existing` state messages addressed to the requester's `replyTo` routing key via `player-connection`.
 
 ---
 
@@ -120,6 +149,8 @@ The application is configured via `src/main/resources/application.yml` and suppo
 | `HYDRA_JWKS_URL` | Ory Hydra JWKS public key endpoint | `http://localhost:4444/.well-known/jwks.json` |
 | `USE_POLICY_SERVER` | Enable or disable verification with policy server | `false` |
 | `POLICY_SERVER_URL` | Base URL of the policy verification service | `http://localhost:8097` |
+| `HOSTNAME` | Instance identifier (`faf.instance-id`) used for unique RabbitMQ queue names | `local` |
+| `STATUS_REFRESH_PERIOD` | Periodic refresh interval for active player session status broadcasts (`faf.player-session-status-refresh-period`) | `1m` |
 
 ---
 

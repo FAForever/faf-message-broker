@@ -1,8 +1,8 @@
-package com.faforever.server.message.interceptor;
+package com.faforever.server.interceptor.message;
 
-import com.faforever.server.message.interceptor.util.CompundRabbitMQOutgoingInterceptor;
-import com.faforever.server.message.interceptor.util.PersistentRabbitMQOutgoingInterceptor;
-import com.faforever.server.message.interceptor.util.ReplyToRabbitMQOutgoingInterceptor;
+import com.faforever.server.interceptor.message.util.CompundRabbitMQOutgoingInterceptor;
+import com.faforever.server.interceptor.message.util.PersistentRabbitMQOutgoingInterceptor;
+import com.faforever.server.interceptor.message.util.ReplyToRabbitMQOutgoingInterceptor;
 import io.smallrye.common.annotation.Identifier;
 import jakarta.inject.Singleton;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -10,7 +10,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import java.util.List;
 
 @Singleton
-@Identifier("player-active-response")
+@Identifier("lobby-schema-request")
 public class LobbySchemaRequestOutgoingInterceptor extends CompundRabbitMQOutgoingInterceptor {
 
     public LobbySchemaRequestOutgoingInterceptor(@ConfigProperty(name = "mp.messaging.incoming.lobby-schema-registration.queue.name") String queueName) {

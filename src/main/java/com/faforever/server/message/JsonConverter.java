@@ -1,6 +1,7 @@
 package com.faforever.server.message;
 
 import io.smallrye.reactive.messaging.MessageConverter;
+import io.smallrye.reactive.messaging.rabbitmq.IncomingRabbitMQMetadata;
 import io.vertx.core.json.JsonObject;
 import jakarta.enterprise.context.ApplicationScoped;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +18,16 @@ public class JsonConverter implements MessageConverter {
 
     @Override
     public boolean canConvert(Message<?> in, Type target) {
-        return in.getPayload() instanceof JsonObject || in.getPayload() instanceof byte[];
+        Object payload = in.getPayload();
+        if (!(payload instanceof JsonObject || payload instanceof byte[] || payload instanceof String)) {
+            return false;
+        }
+
+        return in.getMetadata(IncomingRabbitMQMetadata.class).filter(metadata -> {
+            String encoding = metadata.getContentEncoding();
+            return encoding == null || encoding.isEmpty();
+        }).flatMap(IncomingRabbitMQMetadata::getEffectiveContentType).map("application/json"::equalsIgnoreCase).orElse(
+                false);
     }
 
     @Override
@@ -28,6 +38,7 @@ public class JsonConverter implements MessageConverter {
         return in.withPayload(switch (in.getPayload()) {
             case JsonObject jsonObject -> jsonObject.mapTo(clazz);
             case byte[] byteArray -> jsonMapper.readValue(byteArray, clazz);
+            case String string -> jsonMapper.readValue(string, clazz);
             default -> throw new IllegalArgumentException("Unknown payload type");
         });
     }

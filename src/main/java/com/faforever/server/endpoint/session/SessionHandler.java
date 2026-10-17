@@ -1,9 +1,10 @@
-package com.faforever.server.message;
+package com.faforever.server.endpoint.session;
 
 import com.faforever.server.config.FAFProperties;
 import com.faforever.server.endpoint.connection.LobbyConnection;
 import com.faforever.server.endpoint.connection.UserAgent;
 import com.faforever.server.interceptor.cdi.MDCPopulated;
+import com.faforever.server.message.MessageBroker;
 import com.faforever.server.message.client.ConnectionMessage;
 import com.faforever.server.message.client.PassthroughMessage;
 import com.faforever.server.message.client.ProtocolMessage;
@@ -11,7 +12,7 @@ import com.faforever.server.message.service.InboundPassthroughMessage;
 import com.faforever.server.micrometer.ProtocolMessageCommandResolver;
 import com.faforever.server.policy.PolicyClient;
 import com.faforever.server.policy.PolicyContents;
-import io.micrometer.core.annotation.Counted;
+import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.aop.MeterTag;
 import io.smallrye.jwt.auth.principal.JWTParser;
 import io.smallrye.jwt.auth.principal.ParseException;
@@ -95,7 +96,7 @@ public class SessionHandler {
         LOG.debug("Connection closed");
     }
 
-    void sendMessage(ProtocolMessage.Outgoing message) {
+    public void sendMessage(ProtocolMessage.Outgoing message) {
         if (connection == null) {
             throw new IllegalStateException("No established connection");
         }
@@ -104,7 +105,7 @@ public class SessionHandler {
     }
 
     @MDCPopulated
-    @Counted("messages.inbound")
+    @Timed(value = "faf.messages.inbound", histogram = true)
     public void handleMessage(@MeterTag(
             value = "command", resolver = ProtocolMessageCommandResolver.class
     ) ProtocolMessage.Incoming message) {

@@ -26,10 +26,14 @@ quarkus:
       url: ${POLICY_SERVER_URL:http://localhost:8097}
   management:
     enabled: true
+  shutdown:
+    is-delay-enabled: true
+    delay: 5s
 
 faf:
   use-policy-server: ${USE_POLICY_SERVER:false}
   instance-id: ${HOSTNAME:local}
+  player-session-status-refresh-period: ${STATUS_REFRESH_PERIOD:1m}
 
 mp:
   messaging:
@@ -75,11 +79,6 @@ mp:
         exchange:
           durable: true
           name: register.connection
-      player-active-response:
-        connector: smallrye-rabbitmq
-        exchange:
-          durable: true
-          name: ""
       lobby-schema-request:
         connector: smallrye-rabbitmq
         exchange:
