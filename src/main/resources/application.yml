@@ -69,7 +69,7 @@ mp:
           durable: true
           auto-delete: true
           exclusive: true
-          name: broker.session.requeest.${faf.instance-id}
+          name: broker.session.request.${faf.instance-id}
     outgoing:
       lobby-inbound:
         connector: smallrye-rabbitmq

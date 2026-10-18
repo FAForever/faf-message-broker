@@ -104,6 +104,10 @@ public class SessionHandler {
         LOG.debug("Connection closed");
     }
 
+    public boolean isClosed() {
+        return connection == null || connection.isClosed();
+    }
+
     public void sendMessage(ProtocolMessage.Outgoing message) {
         if (connection == null) {
             throw new IllegalStateException("No established connection");

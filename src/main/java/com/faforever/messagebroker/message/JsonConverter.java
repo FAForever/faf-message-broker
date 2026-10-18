@@ -39,7 +39,7 @@ public class JsonConverter implements MessageConverter {
             case JsonObject jsonObject -> jsonObject.mapTo(clazz);
             case byte[] byteArray -> jsonMapper.readValue(byteArray, clazz);
             case String string -> jsonMapper.readValue(string, clazz);
-            default -> throw new IllegalArgumentException("Unknown payload type");
+            case Object object -> throw new IllegalArgumentException("Unknown payload type: " + object.getClass());
         });
     }
 }

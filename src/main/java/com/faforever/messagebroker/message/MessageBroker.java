@@ -254,6 +254,11 @@ public class MessageBroker {
     }
 
     private void sendMessageAndCloseIfNecessary(SessionHandler sessionHandler, ProtocolMessage.Outgoing message) {
+        if (sessionHandler.isClosed()) {
+            LOG.warn("Sending message too already closed session");
+            return;
+        }
+
         sessionHandler.sendMessage(message);
         if (message instanceof PassthroughMessage.Lobby(_, String command, ObjectNode payload) &&
             "notice".equals(command) &&

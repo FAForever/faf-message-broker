@@ -128,6 +128,7 @@ class SessionHandlerTest {
         int playerId = 1;
         JsonWebToken jsonWebToken = mock();
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
+        when(jsonWebToken.claim("scp")).thenReturn(Optional.of("lobby"));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
         sessionHandler.handleMessage(new ConnectionMessage.AuthenticateRequest("", "", ""));
@@ -141,6 +142,7 @@ class SessionHandlerTest {
         int playerId = 1;
         JsonWebToken jsonWebToken = mock();
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
+        when(jsonWebToken.claim("scp")).thenReturn(Optional.of("lobby"));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
         ConnectionMessage.AuthenticateRequest message = new ConnectionMessage.AuthenticateRequest("", "", "");
@@ -163,10 +165,25 @@ class SessionHandlerTest {
     }
 
     @Test
+    void testAuthenticateRequestNoLobbyScope() throws ParseException {
+        int playerId = 1;
+        JsonWebToken jsonWebToken = mock();
+        when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
+        when(jwtParser.parse("")).thenReturn(jsonWebToken);
+
+        ConnectionMessage.AuthenticateRequest message = new ConnectionMessage.AuthenticateRequest("", "", "");
+        sessionHandler.handleMessage(message);
+        assertThat(connection.getSentMessages(),
+                   contains(new ConnectionMessage.LoginFailureResponse("", "Token does not have permission to login to the lobby server")));
+        assertTrue(connection.isClosed());
+    }
+
+    @Test
     void testTrustedMessageAuthenticated() throws Exception {
         int playerId = 1;
         JsonWebToken jsonWebToken = mock();
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
+        when(jsonWebToken.claim("scp")).thenReturn(Optional.of("lobby"));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
         sessionHandler.handleMessage(new ConnectionMessage.AuthenticateRequest("", "", ""));
@@ -190,6 +207,7 @@ class SessionHandlerTest {
         int playerId = 1;
         JsonWebToken jsonWebToken = mock();
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
+        when(jsonWebToken.claim("scp")).thenReturn(Optional.of("lobby"));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
         sessionHandler.handleMessage(new ConnectionMessage.AuthenticateRequest("", "", ""));

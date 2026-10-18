@@ -194,6 +194,25 @@ class MessageBrokerTest {
         }
 
         @Test
+        @TestConfigProperty(key = "faf.publish-unknown-messages", value = "true")
+        void testInvalidLobbyMessageUnknownAllowed() {
+            when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
+                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA,
+                                                   "route")));
+
+            messageBroker.loadSchemas();
+
+            messageBroker.handleInboundMessage(
+                    createInboundMessage(
+                            Map.of("command", new StringNode(COMMAND), "key", NullNode.getInstance(), "request_id",
+                                   new StringNode("12345"))));
+
+            verifyNoInteractions(lobbyMessageEmitter);
+            verify(sessionHandler).sendMessage(
+                    new FailedMessage("12345", "Invalid message received", "message.invalid"));
+        }
+
+        @Test
         void testValidLobbyMessage() {
             when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
                     List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA,
@@ -215,6 +234,26 @@ class MessageBrokerTest {
             OutgoingRabbitMQMetadata outgoingRabbitMQMetadata = metadata.get(OutgoingRabbitMQMetadata.class)
                                                                         .orElseThrow();
             assertEquals("lobby.route." + COMMAND, outgoingRabbitMQMetadata.getRoutingKey());
+        }
+
+        @Test
+        @TestConfigProperty(key = "faf.publish-unknown-messages", value = "true")
+        void testUnknownLobbyMessageUnknownAllowed() {
+            InboundPassthroughMessage message = createInboundMessage(
+                    Map.of("command", new StringNode(COMMAND), "request_id", new StringNode("12345")));
+
+            messageBroker.handleInboundMessage(message);
+            ArgumentCaptor<Message<InboundPassthroughMessage>> messageCaptor = captor();
+
+            verify(lobbyMessageEmitter).send(messageCaptor.capture());
+
+            Message<InboundPassthroughMessage> sentMessage = messageCaptor.getValue();
+            assertEquals(message, sentMessage.getPayload());
+
+            Metadata metadata = sentMessage.getMetadata();
+            OutgoingRabbitMQMetadata outgoingRabbitMQMetadata = metadata.get(OutgoingRabbitMQMetadata.class)
+                                                                        .orElseThrow();
+            assertEquals("lobby.legacy." + COMMAND, outgoingRabbitMQMetadata.getRoutingKey());
         }
 
         @Test
