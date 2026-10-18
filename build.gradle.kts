@@ -4,6 +4,7 @@ import net.ltgt.gradle.nullaway.nullaway
 plugins {
     java
     id("io.quarkus")
+    id("org.gradlex.extra-java-module-info") version("1.14.2")
     id("net.ltgt.errorprone") version ("5.1.0")
     id("net.ltgt.nullaway") version ("3.0.0")
 }
@@ -55,6 +56,10 @@ dependencies {
     testImplementation("io.quarkus:quarkus-junit-mockito")
     testImplementation("org.hamcrest:hamcrest")
     testImplementation("org.skyscreamer:jsonassert:1.5.3")
+}
+
+extraJavaModuleInfo {
+    deriveAutomaticModuleNamesFromFileNames = true
 }
 
 group = "com.faforever.server"
