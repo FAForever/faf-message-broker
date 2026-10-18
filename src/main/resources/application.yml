@@ -33,6 +33,7 @@ faf:
   use-policy-server: ${USE_POLICY_SERVER:false}
   instance-id: ${HOSTNAME:local}
   player-session-status-refresh-period: ${STATUS_REFRESH_PERIOD:1m}
+  real-ip-header: ${REAL_IP_HEADER:X-Real-Ip}
 
 mp:
   messaging:
