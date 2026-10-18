@@ -193,7 +193,7 @@ public class MessageBroker {
                 new LobbySchemaKey(command, LobbySchemaDetails.Direction.INBOUND));
         if (lobbySchemaRoute == null) {
             LOG.warn("Unknown message type");
-            return null;
+            return fafProperties.publishUnknownMessages() ? fafProperties.unknownMessageRoute() : null;
         }
 
         Schema schema = lobbySchemaRoute.schema();

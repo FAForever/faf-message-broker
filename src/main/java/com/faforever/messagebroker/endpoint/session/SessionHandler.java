@@ -114,9 +114,8 @@ public class SessionHandler {
 
     @MDCPopulated
     @Timed(value = "faf.messages.inbound", histogram = true)
-    public void handleMessage(@MeterTag(
-            value = "command", resolver = ProtocolMessageCommandResolver.class
-    ) ProtocolMessage.Incoming message) {
+    public void handleMessage(@MeterTag(value = "command",
+                                        resolver = ProtocolMessageCommandResolver.class) ProtocolMessage.Incoming message) {
         switch (message) {
             case ConnectionMessage.Incoming connectionMessage -> handleConnectionMessage(connectionMessage);
             case PassthroughMessage passthrough -> {
@@ -139,7 +138,8 @@ public class SessionHandler {
             case ConnectionMessage.AuthenticateRequest(String requestId, String token, String uniqueId) -> {
                 if (this.playerId != null) {
                     LOG.warn("Player already set for session");
-                    sendMessage(new ConnectionMessage.LoginFailureResponse(requestId, "Connection previously authenticated"));
+                    sendMessage(new ConnectionMessage.LoginFailureResponse(requestId,
+                                                                           "Connection previously authenticated"));
                     close();
                     return;
                 }
@@ -150,6 +150,14 @@ public class SessionHandler {
                 } catch (ParseException e) {
                     LOG.warn("Unable to parse jwt", e);
                     sendMessage(new ConnectionMessage.LoginFailureResponse(requestId, "Invalid access token provided"));
+                    close();
+                    return;
+                }
+
+                if (!jwt.claim("scp").map(Object::toString).map(scopes -> scopes.contains("lobby")).orElse(false)) {
+                    LOG.warn("Token without lobby scope received");
+                    sendMessage(new ConnectionMessage.LoginFailureResponse(requestId,
+                                                                           "Token does not have permission to login to the lobby server"));
                     close();
                     return;
                 }

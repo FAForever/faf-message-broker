@@ -24,6 +24,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -113,6 +114,7 @@ class SessionHandlerTest {
         int playerId = 1;
         JsonWebToken jsonWebToken = mock();
         when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
+        when(jsonWebToken.claim("scp")).thenReturn(Optional.of("lobby"));
         when(jwtParser.parse("")).thenReturn(jsonWebToken);
 
         sessionHandler.handleMessage(new ConnectionMessage.AuthenticateRequest("", "", ""));

@@ -29,4 +29,10 @@ public interface FAFProperties {
     @WithDefault("X-Real-IP")
     String realIpHeader();
 
+    @WithDefault("false")
+    boolean publishUnknownMessages();
+
+    @WithDefault("legacy")
+    String unknownMessageRoute();
+
 }
