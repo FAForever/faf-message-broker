@@ -25,9 +25,6 @@ quarkus:
       url: ${POLICY_SERVER_URL:http://localhost:8097}
   management:
     enabled: true
-  shutdown:
-    is-delay-enabled: true
-    delay: 5s
 
 faf:
   use-policy-server: ${USE_POLICY_SERVER:false}
