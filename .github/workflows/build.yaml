@@ -25,7 +25,7 @@ jobs:
       - name: Gradle test
         if: github.ref != 'refs/heads/main' && ! startsWith(github.ref, 'refs/tags')
         env:
-          GRADLE_CLI_OPTS: "-Dversion=${{steps.get_tag_or_branch.outputs.TAG_OR_BRANCH}} -Dquarkus.container-image.builder=docker"
+          GRADLE_CLI_OPTS: "--no-daemon -Dversion=${{steps.get_tag_or_branch.outputs.TAG_OR_BRANCH}} -Dquarkus.container-image.builder=docker"
         run: "chmod +x ./gradlew && ./gradlew ${GRADLE_CLI_OPTS} build"
 
       - name: Login to DockerHub
@@ -39,5 +39,5 @@ jobs:
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags')
         env:
           TAG_OR_BRANCH: ${{steps.get_tag_or_branch.outputs.TAG_OR_BRANCH}}
-          GRADLE_CLI_OPTS: "-Dquarkus.container-image.tag=${{steps.get_tag_or_branch.outputs.TAG_OR_BRANCH}} -Dversion=${{steps.get_tag_or_branch.outputs.TAG_OR_BRANCH}} -Dquarkus.container-image.push=true -Dquarkus.container-image.build=true -Dquarkus.container-image.builder=docker -Dquarkus.container-image.group=faforever"
+          GRADLE_CLI_OPTS: "--no-daemon -Dquarkus.container-image.tag=${{steps.get_tag_or_branch.outputs.TAG_OR_BRANCH}} -Dversion=${{steps.get_tag_or_branch.outputs.TAG_OR_BRANCH}} -Dquarkus.container-image.push=true -Dquarkus.container-image.build=true -Dquarkus.container-image.builder=docker -Dquarkus.container-image.group=faforever"
         run: "chmod +x ./gradlew && ./gradlew ${GRADLE_CLI_OPTS} build"
