@@ -34,8 +34,8 @@ faf:
   instance-id: ${HOSTNAME:local}
   player-session-status-refresh-period: ${STATUS_REFRESH_PERIOD:1m}
   real-ip-header: ${REAL_IP_HEADER:X-Real-Ip}
-  publish-unknown-messages: {$ALLOW_UNVALIDATED_MESSAGES:false}
-  unknown-message-route: {$UNVALIDATED_MESSAGE_ROUTE:legacy}
+  publish-unknown-messages: ${PUBLISH_UNKNOWN_MESSAGES:false}
+  unknown-message-route: ${UNKNOWN_MESSAGE_ROUTE:legacy}
 
 mp:
   messaging:
