@@ -1,6 +1,7 @@
 package com.faforever.messagebroker.message;
 
 import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
+import com.faforever.messagebroker.endpoint.connection.UserAgent;
 import com.faforever.messagebroker.endpoint.session.SessionHandler;
 import com.faforever.messagebroker.message.client.FailedMessage;
 import com.faforever.messagebroker.message.client.PassthroughMessage;
@@ -85,6 +86,7 @@ class MessageBrokerTest {
             when(sessionHandler.playerId()).thenReturn(PLAYER_ID);
             when(sessionHandler.sessionId()).thenReturn(SESSION_ID_1);
             when(sessionHandler.remoteIp()).thenReturn(REMOTE_IP);
+            when(sessionHandler.userAgent()).thenReturn(new UserAgent(null, null));
         }
 
         @Test
@@ -161,6 +163,7 @@ class MessageBrokerTest {
         void setup() {
             when(sessionHandler.playerId()).thenReturn(PLAYER_ID);
             when(sessionHandler.sessionId()).thenReturn(SESSION_ID_1);
+            when(sessionHandler.userAgent()).thenReturn(new UserAgent(null, null));
 
             messageBroker.registerSession(PLAYER_ID, sessionHandler);
         }
@@ -328,9 +331,11 @@ class MessageBrokerTest {
         void setup() {
             when(sessionHandler1.playerId()).thenReturn(PLAYER_ID);
             when(sessionHandler1.sessionId()).thenReturn(SESSION_ID_1);
+            when(sessionHandler1.userAgent()).thenReturn(new UserAgent(null, null));
 
             when(sessionHandler2.playerId()).thenReturn(PLAYER_ID);
             when(sessionHandler2.sessionId()).thenReturn(SESSION_ID_2);
+            when(sessionHandler2.userAgent()).thenReturn(new UserAgent(null, null));
 
             messageBroker.registerSession(PLAYER_ID, sessionHandler1);
             messageBroker.registerSession(PLAYER_ID, sessionHandler2);

@@ -332,12 +332,10 @@ public class MessageBroker {
                                                              .stream()
                                                              .map(entry -> {
                                                                  UserAgent userAgent = entry.getKey();
-                                                                 String agent = userAgent == null ||
-                                                                                userAgent.agent() == null ?
+                                                                 String agent = userAgent.agent() == null ?
                                                                                 "unknown" :
                                                                                 userAgent.agent();
-                                                                 String version = userAgent == null ||
-                                                                                  userAgent.version() == null ?
+                                                                 String version = userAgent.version() == null ?
                                                                                   "unknown" :
                                                                                   userAgent.version();
                                                                  return MultiGauge.Row.of(

@@ -29,6 +29,8 @@ import java.util.SplittableRandom;
 @Dependent
 public class SessionHandler {
 
+    private static final UserAgent NO_USERAGENT = new UserAgent(null, null);
+
     private final MessageBroker messageBroker;
 
     private final FAFProperties fafProperties;
@@ -37,8 +39,8 @@ public class SessionHandler {
     private final JWTParser jwtParser;
 
     private @Nullable LobbyConnection connection;
-    private @Nullable UserAgent userAgent;
     private @Nullable Integer playerId;
+    private UserAgent userAgent = NO_USERAGENT;
 
 
     private final long sessionId = new SplittableRandom().nextLong(Long.MAX_VALUE);
@@ -62,7 +64,7 @@ public class SessionHandler {
     }
 
     private void setUserAgent(UserAgent userAgent) {
-        if (this.userAgent != null) {
+        if (this.userAgent != NO_USERAGENT) {
             LOG.warn("User agent already set for session");
             return;
         }
@@ -70,7 +72,7 @@ public class SessionHandler {
         this.userAgent = userAgent;
     }
 
-    public @Nullable UserAgent userAgent() {
+    public UserAgent userAgent() {
         return userAgent;
     }
 
