@@ -70,7 +70,7 @@ public class SessionHandler {
         this.userAgent = userAgent;
     }
 
-    @Nullable UserAgent userAgent() {
+    public @Nullable UserAgent userAgent() {
         return userAgent;
     }
 

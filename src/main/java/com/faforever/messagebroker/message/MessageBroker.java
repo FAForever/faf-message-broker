@@ -2,6 +2,7 @@ package com.faforever.messagebroker.message;
 
 import com.faforever.messagebroker.config.FAFProperties;
 import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
+import com.faforever.messagebroker.endpoint.connection.UserAgent;
 import com.faforever.messagebroker.endpoint.session.SessionHandler;
 import com.faforever.messagebroker.interceptor.cdi.MDCPopulated;
 import com.faforever.messagebroker.message.client.FailedMessage;
@@ -25,6 +26,8 @@ import io.micrometer.core.annotation.Counted;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.aop.MeterTag;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.MultiGauge;
+import io.micrometer.core.instrument.Tags;
 import io.quarkus.scheduler.Scheduled;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import io.smallrye.reactive.messaging.rabbitmq.IncomingRabbitMQMetadata;
@@ -41,11 +44,14 @@ import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.node.StringNode;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @JBossLog
 @ApplicationScoped
@@ -63,6 +69,7 @@ public class MessageBroker {
     private final Map<LobbySchemaKey, LobbySchemaRoute> lobbySchemas;
     private final Map<Long, SessionHandler> sessionHandlerMap;
     private final Map<Integer, Set<SessionHandler>> playerSessionMap;
+    private final MultiGauge userAgentMultiGauge;
     private final Schema gameSchema;
 
     private final SchemaRegistry schemaRegistry = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12);
@@ -82,6 +89,7 @@ public class MessageBroker {
         sessionHandlerMap = meterRegistry.gaugeMapSize("faf.sessions", Set.of(), new ConcurrentHashMap<>());
         playerSessionMap = meterRegistry.gaugeMapSize("faf.players", Set.of(), new ConcurrentHashMap<>());
         lobbySchemas = meterRegistry.gaugeMapSize("faf.schemas", Set.of(), new ConcurrentHashMap<>());
+        userAgentMultiGauge = MultiGauge.builder("faf.user.agents").register(meterRegistry);
     }
 
     @PostConstruct
@@ -221,7 +229,7 @@ public class MessageBroker {
     @Timed(value = "faf.messages.outbound", histogram = true)
     void handleOutboundMessage(@MeterTag(value = "command",
                                          resolver = ProtocolMessageCommandResolver.class) OutboundPassthroughMessage outboundPassthroughMessage) {
-        PassthroughMessage message = outboundPassthroughMessage.message();
+        ProtocolMessage.Outgoing message = outboundPassthroughMessage.message();
         switch (outboundPassthroughMessage.target()) {
             case OutboundTarget.Session(long sessionId) -> sendMessageToSession(sessionId, message);
             case OutboundTarget.Player(int playerId) -> sendMessageToPlayer(playerId, message);
@@ -229,11 +237,11 @@ public class MessageBroker {
         }
     }
 
-    private void sendMessageToAll(PassthroughMessage message) {
+    private void sendMessageToAll(ProtocolMessage.Outgoing message) {
         sessionHandlerMap.values().forEach(sessionHandler -> sendMessageAndCloseIfNecessary(sessionHandler, message));
     }
 
-    private void sendMessageToPlayer(int playerId, PassthroughMessage message) {
+    private void sendMessageToPlayer(int playerId, ProtocolMessage.Outgoing message) {
         Set<SessionHandler> playerSessions = playerSessionMap.getOrDefault(playerId, Set.of());
         if (playerSessions.isEmpty()) {
             LOG.warn("No active sessions for player");
@@ -286,6 +294,8 @@ public class MessageBroker {
         playerConnectionEmitter.send(new PlayerSessionState(playerId, sessionId, sessionHandler.remoteIp(),
                                                             new PlayerSessionState.State.New(
                                                                     fafProperties.playerSessionStatusExpiry())));
+
+        updateUserAgentGauge();
     }
 
     public void unregisterSession(int playerId, SessionHandler sessionHandler) {
@@ -307,6 +317,35 @@ public class MessageBroker {
 
             return sessions.isEmpty() ? null : sessions;
         });
+
+        updateUserAgentGauge();
+    }
+
+    private void updateUserAgentGauge() {
+        List<MultiGauge.Row<Number>> rows = sessionHandlerMap.values()
+                                                             .stream()
+                                                             .map(SessionHandler::userAgent)
+                                                             .collect(Collectors.groupingBy(Function.identity(),
+                                                                                            HashMap::new,
+                                                                                            Collectors.counting()))
+                                                             .entrySet()
+                                                             .stream()
+                                                             .map(entry -> {
+                                                                 UserAgent userAgent = entry.getKey();
+                                                                 String agent = userAgent == null ||
+                                                                                userAgent.agent() == null ?
+                                                                                "unknown" :
+                                                                                userAgent.agent();
+                                                                 String version = userAgent == null ||
+                                                                                  userAgent.version() == null ?
+                                                                                  "unknown" :
+                                                                                  userAgent.version();
+                                                                 return MultiGauge.Row.of(
+                                                                         Tags.of("user_agent", agent, "version",
+                                                                                 version), entry.getValue());
+                                                             })
+                                                             .toList();
+        userAgentMultiGauge.register(rows, true);
     }
 
     private record LobbySchemaKey(
