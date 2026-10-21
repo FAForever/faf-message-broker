@@ -41,7 +41,7 @@ mp:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: lobby.message.outbound
+          name: lobby-message-outbound
         queue:
           durable: true
           auto-delete: true
@@ -51,7 +51,7 @@ mp:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: lobby.schema.register
+          name: lobby-schema-register
         queue:
           durable: true
           auto-delete: true
@@ -61,7 +61,7 @@ mp:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: lobby.session.request
+          name: lobby-session-request
         queue:
           durable: true
           auto-delete: true
@@ -72,17 +72,17 @@ mp:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: lobby.message.inbound
+          name: lobby-message-inbound
       player-connection:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: lobby.session.state
+          name: lobby-session-state
       lobby-schema-request:
         connector: smallrye-rabbitmq
         exchange:
           durable: true
-          name: lobby.schema.request
+          name: lobby-schema-request
 
   jwt:
     verify:
