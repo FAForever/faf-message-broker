@@ -1,11 +1,10 @@
 package com.faforever.messagebroker.endpoint.session;
 
 import com.faforever.messagebroker.endpoint.connection.LobbyConnection;
-import com.faforever.messagebroker.endpoint.connection.UserAgent;
+import com.faforever.messagebroker.endpoint.connection.LobbyConnectionTest;
 import com.faforever.messagebroker.message.MessageBroker;
 import com.faforever.messagebroker.message.client.ConnectionMessage;
 import com.faforever.messagebroker.message.client.PassthroughMessage;
-import com.faforever.messagebroker.message.client.ProtocolMessage;
 import com.faforever.messagebroker.message.service.InboundPassthroughMessage;
 import com.faforever.messagebroker.policy.PolicyClient;
 import com.faforever.messagebroker.policy.PolicyContents;
@@ -16,25 +15,19 @@ import io.smallrye.jwt.auth.principal.JWTParser;
 import io.smallrye.jwt.auth.principal.ParseException;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.jwt.JsonWebToken;
-import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
@@ -58,7 +51,7 @@ class SessionHandlerTest {
     @InjectMock
     private JWTParser jwtParser;
 
-    private final TestLobbyConnection connection = new TestLobbyConnection();
+    private final LobbyConnection connection = mock();
 
     @BeforeEach
     void setConnection() {
@@ -66,11 +59,20 @@ class SessionHandlerTest {
     }
 
     @Test
-    void testUnauthenticatedClientMessage() {
+    void testUnauthenticatedClientMessage() throws Exception {
         PassthroughMessage message = createPassthroughMessage();
 
-        assertThrows(IllegalStateException.class, () -> sessionHandler.handleMessage(message));
+        sessionHandler.handleMessage(message);
         verifyNoInteractions(messageBroker);
+
+        int playerId = 1;
+        JsonWebToken jsonWebToken = mock();
+        when(jsonWebToken.getSubject()).thenReturn(Integer.toString(playerId));
+        when(jsonWebToken.claim("scp")).thenReturn(Optional.of("lobby"));
+        when(jwtParser.parse("")).thenReturn(jsonWebToken);
+
+        sessionHandler.handleMessage(new ConnectionMessage.AuthenticateRequest("", "", ""));
+        verify(messageBroker).handleInboundMessage(new InboundPassthroughMessage(sessionHandler.sessionId(), playerId, message));
     }
 
     @Test
@@ -81,21 +83,20 @@ class SessionHandlerTest {
     @Test
     void testPing() {
         sessionHandler.handleMessage(new ConnectionMessage.Ping(""));
-        assertThat(connection.getSentMessages(), contains(new ConnectionMessage.Pong("")));
+        verify(connection).queue(new ConnectionMessage.Pong(""));
     }
 
     @Test
     void testPong() {
         sessionHandler.handleMessage(new ConnectionMessage.Pong(""));
-        assertThat(connection.getSentMessages(), hasSize(0));
+        verify(connection, never()).queue(any());
     }
 
     @Test
     void testSessionRequest() {
         UserAgent userAgent = new UserAgent("userAgent", "1.0");
         sessionHandler.handleMessage(new ConnectionMessage.SessionRequest("", userAgent.agent(), userAgent.version()));
-        assertThat(connection.getSentMessages(),
-                   contains(new ConnectionMessage.SessionResponse("", sessionHandler.sessionId())));
+        verify(connection).queue(new ConnectionMessage.SessionResponse("", sessionHandler.sessionId()));
         assertThat(sessionHandler.userAgent(), equalTo(userAgent));
     }
 
@@ -148,9 +149,8 @@ class SessionHandlerTest {
         ConnectionMessage.AuthenticateRequest message = new ConnectionMessage.AuthenticateRequest("", "", "");
         sessionHandler.handleMessage(message);
         sessionHandler.handleMessage(message);
-        assertThat(connection.getSentMessages(),
-                   contains(new ConnectionMessage.LoginFailureResponse("", "Connection previously authenticated")));
-        assertTrue(connection.isClosed());
+        verify(connection).queue(new ConnectionMessage.LoginFailureResponse("", "Connection previously authenticated"));
+        verify(connection).close();
     }
 
     @Test
@@ -159,9 +159,8 @@ class SessionHandlerTest {
 
         ConnectionMessage.AuthenticateRequest message = new ConnectionMessage.AuthenticateRequest("", "", "");
         sessionHandler.handleMessage(message);
-        assertThat(connection.getSentMessages(),
-                   contains(new ConnectionMessage.LoginFailureResponse("", "Invalid access token provided")));
-        assertTrue(connection.isClosed());
+        verify(connection).queue(new ConnectionMessage.LoginFailureResponse("", "Invalid access token provided"));
+        verify(connection).close();
     }
 
     @Test
@@ -173,9 +172,8 @@ class SessionHandlerTest {
 
         ConnectionMessage.AuthenticateRequest message = new ConnectionMessage.AuthenticateRequest("", "", "");
         sessionHandler.handleMessage(message);
-        assertThat(connection.getSentMessages(),
-                   contains(new ConnectionMessage.LoginFailureResponse("", "Token does not have permission to login to the lobby server")));
-        assertTrue(connection.isClosed());
+        verify(connection).queue(new ConnectionMessage.LoginFailureResponse("", "Token does not have permission to login to the lobby server"));
+        verify(connection).close();
     }
 
     @Test
@@ -198,7 +196,7 @@ class SessionHandlerTest {
     void testCloseBeforeAuth() {
         sessionHandler.close();
 
-        assertTrue(connection.isClosed());
+        verify(connection).close();
         verify(messageBroker, never()).unregisterSession(anyInt(), any(SessionHandler.class));
     }
 
@@ -215,7 +213,7 @@ class SessionHandlerTest {
 
         sessionHandler.close();
 
-        assertTrue(connection.isClosed());
+        verify(connection).close();
         verify(messageBroker).unregisterSession(playerId, sessionHandler);
     }
 
@@ -223,12 +221,14 @@ class SessionHandlerTest {
     void testSendAfterClose() {
         sessionHandler.close();
 
-        assertThrows(IllegalStateException.class, () -> sessionHandler.sendMessage(createPassthroughMessage()));
+        sessionHandler.send(createPassthroughMessage());
+
+        verify(connection, never()).queue(any());
     }
 
     @Test
     void testDuplicateConnection() {
-        assertThrows(IllegalStateException.class, () -> sessionHandler.setConnection(new TestLobbyConnection()));
+        assertThrows(IllegalStateException.class, () -> sessionHandler.setConnection(connection));
     }
 
     private PassthroughMessage createPassthroughMessage() {
@@ -237,39 +237,4 @@ class SessionHandlerTest {
         return PassthroughMessage.of(node);
     }
 
-    @NullMarked
-    private static class TestLobbyConnection implements LobbyConnection {
-
-        private final List<ProtocolMessage.Outgoing> sentMessages = new ArrayList<>();
-
-        private boolean closed = false;
-
-        public List<ProtocolMessage.Outgoing> getSentMessages() {
-            return List.copyOf(sentMessages);
-        }
-
-
-        @Override
-        public void sendAndAwait(ProtocolMessage.Outgoing message) {
-            if (closed) {
-                throw new IllegalStateException("Test connection closed");
-            }
-            sentMessages.add(message);
-        }
-
-        @Override
-        public void close() {
-            closed = true;
-        }
-
-        @Override
-        public boolean isClosed() {
-            return closed;
-        }
-
-        @Override
-        public String remoteIp() {
-            return "127.0.0.1";
-        }
-    }
 }

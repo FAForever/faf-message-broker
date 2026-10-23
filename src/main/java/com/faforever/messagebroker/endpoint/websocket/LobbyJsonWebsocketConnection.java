@@ -9,18 +9,18 @@ import lombok.RequiredArgsConstructor;
 import java.util.List;
 
 @RequiredArgsConstructor
-public class LobbyJsonWebsocketConnection implements LobbyConnection {
+public class LobbyJsonWebsocketConnection extends LobbyConnection {
 
     private final WebSocketConnection websocket;
     private final String ipHeader;
 
     @Override
-    public void sendAndAwait(ProtocolMessage.Outgoing message) {
+    public void send(ProtocolMessage.Outgoing message) {
         websocket.sendTextAndAwait(message);
     }
 
     @Override
-    public void close() {
+    protected void doClose() {
         websocket.closeAndAwait();
     }
 

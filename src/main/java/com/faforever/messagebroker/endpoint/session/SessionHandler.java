@@ -2,7 +2,6 @@ package com.faforever.messagebroker.endpoint.session;
 
 import com.faforever.messagebroker.config.FAFProperties;
 import com.faforever.messagebroker.endpoint.connection.LobbyConnection;
-import com.faforever.messagebroker.endpoint.connection.UserAgent;
 import com.faforever.messagebroker.interceptor.cdi.MDCPopulated;
 import com.faforever.messagebroker.message.MessageBroker;
 import com.faforever.messagebroker.message.client.ConnectionMessage;
@@ -23,7 +22,9 @@ import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jspecify.annotations.Nullable;
 
+import java.util.Queue;
 import java.util.SplittableRandom;
+import java.util.concurrent.ArrayBlockingQueue;
 
 @JBossLog
 @Dependent
@@ -33,8 +34,6 @@ public class SessionHandler {
 
     private final MessageBroker messageBroker;
 
-    private final FAFProperties fafProperties;
-
     private final PolicyClient policyClient;
     private final JWTParser jwtParser;
 
@@ -42,15 +41,18 @@ public class SessionHandler {
     private @Nullable Integer playerId;
     private UserAgent userAgent = NO_USERAGENT;
 
+    private final boolean usePolicyServer;
+    private final Queue<PassthroughMessage> beforeAuthQueue;
 
     private final long sessionId = new SplittableRandom().nextLong(Long.MAX_VALUE);
 
     public SessionHandler(MessageBroker messageBroker, FAFProperties fafProperties,
                           @RestClient PolicyClient policyClient, JWTParser jwtParser) {
         this.messageBroker = messageBroker;
-        this.fafProperties = fafProperties;
         this.policyClient = policyClient;
         this.jwtParser = jwtParser;
+        this.usePolicyServer = fafProperties.usePolicyServer();
+        this.beforeAuthQueue = new ArrayBlockingQueue<>(fafProperties.numberOfMessagesToQueueBeforeAuth());
     }
 
     @MDCPopulated
@@ -60,6 +62,7 @@ public class SessionHandler {
             throw new IllegalStateException("Connection already set for session");
         }
         this.connection = connection;
+        this.connection.startDrain();
         LOG.debug("Connection established");
     }
 
@@ -106,16 +109,12 @@ public class SessionHandler {
         LOG.debug("Connection closed");
     }
 
-    public boolean isClosed() {
-        return connection == null || connection.isClosed();
-    }
-
-    public void sendMessage(ProtocolMessage.Outgoing message) {
-        if (connection == null) {
-            throw new IllegalStateException("No established connection");
+    public void send(ProtocolMessage.Outgoing message) {
+        if (connection == null || connection.isClosed()) {
+            LOG.warn("Session has no open connection");
+            return;
         }
-
-        connection.sendAndAwait(message);
+        connection.queue(message);
     }
 
     @MDCPopulated
@@ -126,7 +125,11 @@ public class SessionHandler {
             case ConnectionMessage.Incoming connectionMessage -> handleConnectionMessage(connectionMessage);
             case PassthroughMessage passthrough -> {
                 if (playerId == null) {
-                    throw new IllegalStateException("Connection not yet authenticated");
+                    LOG.info("Received message before authentication queuing until after authentication");
+                    if (!beforeAuthQueue.offer(passthrough)) {
+                        LOG.warn("Unable to queue message before auth due to full capacity");
+                    }
+                    return;
                 }
                 messageBroker.handleInboundMessage(new InboundPassthroughMessage(sessionId, playerId, passthrough));
             }
@@ -135,17 +138,17 @@ public class SessionHandler {
 
     private void handleConnectionMessage(ConnectionMessage.Incoming message) {
         switch (message) {
-            case ConnectionMessage.Ping(String requestId) -> sendMessage(new ConnectionMessage.Pong(requestId));
+            case ConnectionMessage.Ping(String requestId) -> send(new ConnectionMessage.Pong(requestId));
             case ConnectionMessage.Pong _ -> {}
             case ConnectionMessage.SessionRequest(String requestId, String agent, String version) -> {
                 setUserAgent(new UserAgent(agent, version));
-                sendMessage(new ConnectionMessage.SessionResponse(requestId, sessionId));
+                send(new ConnectionMessage.SessionResponse(requestId, sessionId));
             }
             case ConnectionMessage.AuthenticateRequest(String requestId, String token, String uniqueId) -> {
                 if (this.playerId != null) {
                     LOG.warn("Player already set for session");
-                    sendMessage(new ConnectionMessage.LoginFailureResponse(requestId,
-                                                                           "Connection previously authenticated"));
+                    send(new ConnectionMessage.LoginFailureResponse(requestId,
+                                                                    "Connection previously authenticated"));
                     close();
                     return;
                 }
@@ -155,25 +158,34 @@ public class SessionHandler {
                     jwt = jwtParser.parse(token);
                 } catch (ParseException e) {
                     LOG.warn("Unable to parse jwt", e);
-                    sendMessage(new ConnectionMessage.LoginFailureResponse(requestId, "Invalid access token provided"));
+                    send(new ConnectionMessage.LoginFailureResponse(requestId, "Invalid access token provided"));
                     close();
                     return;
                 }
 
                 if (!jwt.claim("scp").map(Object::toString).map(scopes -> scopes.contains("lobby")).orElse(false)) {
                     LOG.warn("Token without lobby scope received");
-                    sendMessage(new ConnectionMessage.LoginFailureResponse(requestId,
-                                                                           "Token does not have permission to login to the lobby server"));
+                    send(new ConnectionMessage.LoginFailureResponse(requestId,
+                                                                    "Token does not have permission to login to the lobby server"));
                     close();
                     return;
                 }
 
-                playerId = Integer.parseInt(jwt.getSubject());
-                if (fafProperties.usePolicyServer()) {
+                int playerId = Integer.parseInt(jwt.getSubject());
+                if (usePolicyServer) {
                     policyClient.sendVerificationDetails(new PolicyContents(sessionId, playerId, uniqueId));
                 }
                 messageBroker.registerSession(playerId, this);
+                this.playerId = playerId;
+                drainBeforeAuth(playerId);
             }
+        }
+    }
+
+    private void drainBeforeAuth(int playerId) {
+        PassthroughMessage beforeAuthMessage;
+        while ((beforeAuthMessage = beforeAuthQueue.poll()) != null) {
+            messageBroker.handleInboundMessage(new InboundPassthroughMessage(sessionId, playerId, beforeAuthMessage));
         }
     }
 }

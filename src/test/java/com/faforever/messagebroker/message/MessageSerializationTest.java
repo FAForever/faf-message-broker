@@ -392,7 +392,7 @@ public class MessageSerializationTest {
 
         JSONAssert.assertEquals("""
                                 {
-                                    "command": "authentication_failure",
+                                    "command": "authentication_failed",
                                     "request_id": "12345",
                                     "text": "Invalid credentials"
                                 }
@@ -407,7 +407,7 @@ public class MessageSerializationTest {
 
         JSONAssert.assertEquals("""
                                 {
-                                    "command": "authentication_failure",
+                                    "command": "authentication_failed",
                                     "request_id": "%s",
                                     "text": "Invalid credentials"
                                 }
@@ -420,7 +420,7 @@ public class MessageSerializationTest {
     void testLoginFailureResponseDeserialization() {
         ProtocolMessage.Outgoing message = jsonMapper.readValue("""
                                                                 {
-                                                                    "command": "authentication_failure",
+                                                                    "command": "authentication_failed",
                                                                     "request_id": "12345",
                                                                     "text": "Invalid credentials"
                                                                 }
@@ -433,14 +433,14 @@ public class MessageSerializationTest {
     void testLoginFailureResponseWithoutRequestIdDeserialization() {
         ProtocolMessage.Outgoing message = jsonMapper.readValue("""
                                                                 {
-                                                                    "command": "authentication_failure",
+                                                                    "command": "authentication_failed",
                                                                     "text": "Invalid credentials"
                                                                 }
                                                                 """, ProtocolMessage.Outgoing.class);
 
         assertInstanceOf(ConnectionMessage.LoginFailureResponse.class, message);
         ConnectionMessage.LoginFailureResponse failureResponse = (ConnectionMessage.LoginFailureResponse) message;
-        assertEquals("authentication_failure", failureResponse.command());
+        assertEquals("authentication_failed", failureResponse.command());
         assertNotNull(failureResponse.requestId());
         assertFalse(failureResponse.requestId().isBlank());
         assertEquals("Invalid credentials", failureResponse.text());
