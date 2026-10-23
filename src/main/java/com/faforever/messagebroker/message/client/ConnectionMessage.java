@@ -95,7 +95,7 @@ sealed public interface ConnectionMessage {
             String requestId,
             @Nullable String text
     ) implements Outgoing {
-        public static final String COMMAND = "authentication_failure";
+        public static final String COMMAND = "authentication_failed";
 
         public LoginFailureResponse(@Nullable String requestId, @Nullable String text) {
             this.requestId = requestId == null ? UUID.randomUUID().toString() : requestId;

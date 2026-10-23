@@ -35,4 +35,7 @@ public interface FAFProperties {
     @WithDefault("legacy")
     String unknownMessageRoute();
 
+    @WithDefault("100")
+    int numberOfMessagesToQueueBeforeAuth();
+
 }

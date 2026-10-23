@@ -2,7 +2,7 @@ package com.faforever.messagebroker.message;
 
 import com.faforever.messagebroker.config.FAFProperties;
 import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
-import com.faforever.messagebroker.endpoint.connection.UserAgent;
+import com.faforever.messagebroker.endpoint.session.UserAgent;
 import com.faforever.messagebroker.endpoint.session.SessionHandler;
 import com.faforever.messagebroker.interceptor.cdi.MDCPopulated;
 import com.faforever.messagebroker.message.client.FailedMessage;
@@ -200,7 +200,7 @@ public class MessageBroker {
         LobbySchemaRoute lobbySchemaRoute = lobbySchemas.get(
                 new LobbySchemaKey(command, LobbySchemaDetails.Direction.INBOUND));
         if (lobbySchemaRoute == null) {
-            LOG.warn("Unknown message type");
+            LOG.debug("Unknown message type");
             return fafProperties.publishUnknownMessages() ? fafProperties.unknownMessageRoute() : null;
         }
 
@@ -262,12 +262,7 @@ public class MessageBroker {
     }
 
     private void sendMessageAndCloseIfNecessary(SessionHandler sessionHandler, ProtocolMessage.Outgoing message) {
-        if (sessionHandler.isClosed()) {
-            LOG.warn("Sending message too already closed session");
-            return;
-        }
-
-        sessionHandler.sendMessage(message);
+        sessionHandler.send(message);
         if (message instanceof PassthroughMessage.Lobby(_, String command, ObjectNode payload) &&
             "notice".equals(command) &&
             payload.findValue("style") instanceof StringNode value &&

@@ -23,6 +23,7 @@ quarkus:
   rest-client:
     policy-server:
       url: ${POLICY_SERVER_URL:http://localhost:8097}
+      disable-default-mapper: true
   management:
     enabled: true
 
@@ -30,9 +31,10 @@ faf:
   use-policy-server: ${USE_POLICY_SERVER:false}
   instance-id: ${HOSTNAME:local}
   player-session-status-refresh-period: ${STATUS_REFRESH_PERIOD:1m}
-  real-ip-header: ${REAL_IP_HEADER:X-Real-Ip}
+  real-ip-header: ${REAL_IP_HEADER:X-Real-IP}
   publish-unknown-messages: ${PUBLISH_UNKNOWN_MESSAGES:false}
   unknown-message-route: ${UNKNOWN_MESSAGE_ROUTE:legacy}
+  number-of-messages-to-queue-before-auth: ${ALLOWED_MESSAGES_BEFORE_AUTH_COUNT:100}
 
 mp:
   messaging:

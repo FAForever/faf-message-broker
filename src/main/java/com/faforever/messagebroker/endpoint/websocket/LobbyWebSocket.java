@@ -34,7 +34,7 @@ public class LobbyWebSocket implements Serializable {
     }
 
     @OnClose
-    public void onClose(WebSocketConnection connection) {
+    public void onClose() {
         sessionHandler.close();
     }
 

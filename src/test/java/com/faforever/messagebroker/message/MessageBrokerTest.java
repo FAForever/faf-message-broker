@@ -1,7 +1,7 @@
 package com.faforever.messagebroker.message;
 
 import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
-import com.faforever.messagebroker.endpoint.connection.UserAgent;
+import com.faforever.messagebroker.endpoint.session.UserAgent;
 import com.faforever.messagebroker.endpoint.session.SessionHandler;
 import com.faforever.messagebroker.message.client.FailedMessage;
 import com.faforever.messagebroker.message.client.PassthroughMessage;
@@ -174,7 +174,7 @@ class MessageBrokerTest {
             messageBroker.handleInboundMessage(createInboundMessage(
                     Map.of("command", new StringNode(COMMAND), "request_id", new StringNode("12345"))));
             verifyNoInteractions(lobbyMessageEmitter);
-            verify(sessionHandler).sendMessage(
+            verify(sessionHandler).send(
                     new FailedMessage("12345", "Invalid message received", "message.invalid"));
         }
 
@@ -192,7 +192,7 @@ class MessageBrokerTest {
                                    new StringNode("12345"))));
 
             verifyNoInteractions(lobbyMessageEmitter);
-            verify(sessionHandler).sendMessage(
+            verify(sessionHandler).send(
                     new FailedMessage("12345", "Invalid message received", "message.invalid"));
         }
 
@@ -211,7 +211,7 @@ class MessageBrokerTest {
                                    new StringNode("12345"))));
 
             verifyNoInteractions(lobbyMessageEmitter);
-            verify(sessionHandler).sendMessage(
+            verify(sessionHandler).send(
                     new FailedMessage("12345", "Invalid message received", "message.invalid"));
         }
 
@@ -265,7 +265,7 @@ class MessageBrokerTest {
                     createInboundMessage(Map.of("command", new StringNode("Test"), "target", new StringNode("game"))));
 
             verifyNoInteractions(lobbyMessageEmitter);
-            verify(sessionHandler).sendMessage(new FailedMessage("", "Invalid message received", "message.invalid"));
+            verify(sessionHandler).send(new FailedMessage("", "Invalid message received", "message.invalid"));
         }
 
         @Test
@@ -349,12 +349,12 @@ class MessageBrokerTest {
             messageBroker.handleOutboundMessage(message);
 
             ArgumentCaptor<PassthroughMessage> messageCaptor = captor();
-            verify(sessionHandler1).sendMessage(messageCaptor.capture());
+            verify(sessionHandler1).send(messageCaptor.capture());
 
             PassthroughMessage sentMessage1 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage1);
 
-            verify(sessionHandler2).sendMessage(messageCaptor.capture());
+            verify(sessionHandler2).send(messageCaptor.capture());
 
             PassthroughMessage sentMessage2 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage2);
@@ -368,12 +368,12 @@ class MessageBrokerTest {
             messageBroker.handleOutboundMessage(message);
 
             ArgumentCaptor<PassthroughMessage> messageCaptor = captor();
-            verify(sessionHandler1).sendMessage(messageCaptor.capture());
+            verify(sessionHandler1).send(messageCaptor.capture());
 
             PassthroughMessage sentMessage1 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage1);
 
-            verify(sessionHandler2).sendMessage(messageCaptor.capture());
+            verify(sessionHandler2).send(messageCaptor.capture());
 
             PassthroughMessage sentMessage2 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage2);
@@ -387,12 +387,12 @@ class MessageBrokerTest {
             messageBroker.handleOutboundMessage(message);
 
             ArgumentCaptor<PassthroughMessage> messageCaptor = captor();
-            verify(sessionHandler1).sendMessage(messageCaptor.capture());
+            verify(sessionHandler1).send(messageCaptor.capture());
 
             PassthroughMessage sentMessage = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage);
 
-            verify(sessionHandler2, never()).sendMessage(any());
+            verify(sessionHandler2, never()).send(any());
         }
 
         @Test
@@ -402,8 +402,8 @@ class MessageBrokerTest {
 
             messageBroker.handleOutboundMessage(message);
 
-            verify(sessionHandler1, never()).sendMessage(any());
-            verify(sessionHandler2, never()).sendMessage(any());
+            verify(sessionHandler1, never()).send(any());
+            verify(sessionHandler2, never()).send(any());
         }
 
         @Test
@@ -413,8 +413,8 @@ class MessageBrokerTest {
 
             messageBroker.handleOutboundMessage(message);
 
-            verify(sessionHandler1, never()).sendMessage(any());
-            verify(sessionHandler2, never()).sendMessage(any());
+            verify(sessionHandler1, never()).send(any());
+            verify(sessionHandler2, never()).send(any());
         }
 
         @Test
@@ -426,14 +426,14 @@ class MessageBrokerTest {
             messageBroker.handleOutboundMessage(message);
 
             ArgumentCaptor<PassthroughMessage> messageCaptor = captor();
-            verify(sessionHandler1).sendMessage(messageCaptor.capture());
+            verify(sessionHandler1).send(messageCaptor.capture());
 
             PassthroughMessage sentMessage1 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage1);
 
             verify(sessionHandler1).close();
 
-            verify(sessionHandler2).sendMessage(messageCaptor.capture());
+            verify(sessionHandler2).send(messageCaptor.capture());
 
             PassthroughMessage sentMessage2 = messageCaptor.getValue();
             assertEquals(message.message(), sentMessage2);
@@ -450,7 +450,7 @@ class MessageBrokerTest {
 
             messageBroker.handleOutboundMessage(message);
 
-            verify(sessionHandler1, never()).sendMessage(any());
+            verify(sessionHandler1, never()).send(any());
         }
 
         @Test
