@@ -1,6 +1,6 @@
 package com.faforever.messagebroker.interceptor.cdi;
 
-import com.faforever.messagebroker.endpoint.session.SessionHandler;
+import com.faforever.messagebroker.session.SessionHandler;
 import com.faforever.messagebroker.message.client.ProtocolMessage;
 import com.faforever.messagebroker.message.service.InboundPassthroughMessage;
 import com.faforever.messagebroker.message.service.OutboundPassthroughMessage;
@@ -16,10 +16,10 @@ import org.slf4j.MDC;
 @Interceptor
 public class MDCInterceptor {
 
-    private static final String COMMAND = "command";
-    private static final String REQUEST_ID = "requestId";
-    private static final String PLAYER_ID = "playerId";
-    private static final String SESSION_ID = "sessionId";
+    public static final String COMMAND = "command";
+    public static final String REQUEST_ID = "requestId";
+    public static final String PLAYER_ID = "playerId";
+    public static final String SESSION_ID = "sessionId";
 
     @AroundInvoke
     Object logInvocation(InvocationContext context) throws Exception {
@@ -65,13 +65,13 @@ public class MDCInterceptor {
                     switch (outboundPassthroughMessage.target()) {
                         case OutboundTarget.Player(int playerId) -> {
                             if (!hasPlayer) {
-                                MDC.pushByKey(PLAYER_ID, String.valueOf(playerId));
+                                MDC.put(PLAYER_ID, String.valueOf(playerId));
                                 hasPlayer = true;
                             }
                         }
                         case OutboundTarget.Session(long sessionId) -> {
                             if (!hasSession) {
-                                MDC.pushByKey(SESSION_ID, String.valueOf(sessionId));
+                                MDC.put(SESSION_ID, String.valueOf(sessionId));
                                 hasSession = true;
                             }
                         }

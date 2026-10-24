@@ -36,6 +36,6 @@ public interface FAFProperties {
     String unknownMessageRoute();
 
     @WithDefault("100")
-    int numberOfMessagesToQueueBeforeAuth();
+    int maxMessageQueueSize();
 
 }

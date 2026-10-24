@@ -1,8 +1,8 @@
 package com.faforever.messagebroker.message;
 
 import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
-import com.faforever.messagebroker.endpoint.session.UserAgent;
-import com.faforever.messagebroker.endpoint.session.SessionHandler;
+import com.faforever.messagebroker.session.UserAgent;
+import com.faforever.messagebroker.session.SessionHandler;
 import com.faforever.messagebroker.message.client.FailedMessage;
 import com.faforever.messagebroker.message.client.PassthroughMessage;
 import com.faforever.messagebroker.message.service.InboundPassthroughMessage;

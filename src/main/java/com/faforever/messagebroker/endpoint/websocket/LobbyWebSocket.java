@@ -1,7 +1,7 @@
 package com.faforever.messagebroker.endpoint.websocket;
 
 import com.faforever.messagebroker.config.FAFProperties;
-import com.faforever.messagebroker.endpoint.session.SessionHandler;
+import com.faforever.messagebroker.session.SessionHandler;
 import com.faforever.messagebroker.message.client.ProtocolMessage;
 import io.quarkus.websockets.next.OnClose;
 import io.quarkus.websockets.next.OnError;
@@ -13,11 +13,11 @@ import io.quarkus.websockets.next.WebSocketConnection;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.enterprise.context.SessionScoped;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.jbosslog.JBossLog;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.Serializable;
 
-@JBossLog
+@Slf4j
 @RequiredArgsConstructor
 @WebSocket(path = "/")
 @SessionScoped
@@ -30,7 +30,7 @@ public class LobbyWebSocket implements Serializable {
 
     @OnOpen
     public void onOpen(WebSocketConnection connection) {
-        sessionHandler.setConnection(new LobbyJsonWebsocketConnection(connection, fafProperties.realIpHeader()));
+        sessionHandler.setConnection(new LobbyWebsocketConnection(connection, fafProperties.realIpHeader()));
     }
 
     @OnClose
@@ -40,7 +40,7 @@ public class LobbyWebSocket implements Serializable {
 
     @OnTextMessage
     public void onTextMessage(ProtocolMessage.Incoming message) {
-        sessionHandler.handleMessage(message);
+        sessionHandler.accept(message);
     }
 
     @OnError
