@@ -107,18 +107,22 @@ public class SessionHandler {
     @MDCPopulated
     public void close() {
         LOG.debug("Session closing");
-        if (playerId != null) {
-            messageBroker.unregisterSession(playerId, this);
+        Integer existingPlayerId = playerId;
+        if (existingPlayerId != null) {
+            messageBroker.unregisterSession(existingPlayerId, this);
             playerId = null;
         }
-        if (outgoingDrainFuture != null) {
-            outgoingDrainFuture.cancel(true);
+
+        Future<?> existingOutgoingDrainFuture = outgoingDrainFuture;
+        if (existingOutgoingDrainFuture != null) {
+            existingOutgoingDrainFuture.cancel(true);
         } else {
             outgoingDrainFuture = CompletableFuture.completedFuture(null);
         }
 
-        if (incomingDrainFuture != null) {
-            incomingDrainFuture.cancel(true);
+        Future<?> existingIncomingDrainFuture = incomingDrainFuture;
+        if (existingIncomingDrainFuture != null) {
+            existingIncomingDrainFuture.cancel(true);
         } else {
             incomingDrainFuture = CompletableFuture.completedFuture(null);
         }
