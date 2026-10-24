@@ -1,4 +1,4 @@
-package com.faforever.messagebroker.endpoint.session;
+package com.faforever.messagebroker.session;
 
 import org.jspecify.annotations.Nullable;
 

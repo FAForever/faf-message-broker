@@ -9,7 +9,7 @@ import lombok.RequiredArgsConstructor;
 import java.util.List;
 
 @RequiredArgsConstructor
-public class LobbyJsonWebsocketConnection extends LobbyConnection {
+public class LobbyWebsocketConnection implements LobbyConnection {
 
     private final WebSocketConnection websocket;
     private final String ipHeader;
@@ -20,13 +20,12 @@ public class LobbyJsonWebsocketConnection extends LobbyConnection {
     }
 
     @Override
-    protected void doClose() {
-        websocket.closeAndAwait();
-    }
+    public void close() {
+        if (websocket.isClosed()) {
+            return;
+        }
 
-    @Override
-    public boolean isClosed() {
-        return websocket.isClosed();
+        websocket.closeAndAwait();
     }
 
     @Override

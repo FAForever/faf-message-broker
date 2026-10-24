@@ -2,8 +2,8 @@ package com.faforever.messagebroker.message;
 
 import com.faforever.messagebroker.config.FAFProperties;
 import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
-import com.faforever.messagebroker.endpoint.session.UserAgent;
-import com.faforever.messagebroker.endpoint.session.SessionHandler;
+import com.faforever.messagebroker.session.SessionHandler;
+import com.faforever.messagebroker.session.UserAgent;
 import com.faforever.messagebroker.interceptor.cdi.MDCPopulated;
 import com.faforever.messagebroker.message.client.FailedMessage;
 import com.faforever.messagebroker.message.client.PassthroughMessage;
@@ -34,7 +34,7 @@ import io.smallrye.reactive.messaging.rabbitmq.IncomingRabbitMQMetadata;
 import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
-import lombok.extern.jbosslog.JBossLog;
+import lombok.extern.slf4j.Slf4j;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
@@ -53,7 +53,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-@JBossLog
+@Slf4j
 @ApplicationScoped
 @RunOnVirtualThread
 public class MessageBroker {
@@ -86,10 +86,18 @@ public class MessageBroker {
         this.lobbyCommandSchemaRepository = lobbyCommandSchemaRepository;
         this.gameSchema = schemaRegistry.getSchema(SchemaLocation.of("gpg"),
                                                    PassthroughMessage.GPG.GAME_PASSTHROUGH_SCHEMA, InputFormat.JSON);
-        sessionHandlerMap = meterRegistry.gaugeMapSize("faf.sessions", Set.of(), new ConcurrentHashMap<>());
-        playerSessionMap = meterRegistry.gaugeMapSize("faf.players", Set.of(), new ConcurrentHashMap<>());
-        lobbySchemas = meterRegistry.gaugeMapSize("faf.schemas", Set.of(), new ConcurrentHashMap<>());
-        userAgentMultiGauge = MultiGauge.builder("faf.user.agents").register(meterRegistry);
+        this.sessionHandlerMap = meterRegistry.gaugeMapSize("faf.sessions", Set.of(), new ConcurrentHashMap<>());
+        this.playerSessionMap = meterRegistry.gaugeMapSize("faf.players", Set.of(), new ConcurrentHashMap<>());
+        this.lobbySchemas = meterRegistry.gaugeMapSize("faf.schemas", Set.of(), new ConcurrentHashMap<>());
+        meterRegistry.gauge("faf.messages.queued", Tags.of("direction", "outbound"), sessionHandlerMap.values(),
+                            sessionHandlers -> sessionHandlers.stream()
+                                                              .mapToInt(SessionHandler::numOutboundQueuedMessages)
+                                                              .sum());
+        meterRegistry.gauge("faf.messages.queued", Tags.of("direction", "inbound"), sessionHandlerMap.values(),
+                            sessionHandlers -> sessionHandlers.stream()
+                                                              .mapToInt(SessionHandler::numInboundQueuedMessages)
+                                                              .sum());
+        this.userAgentMultiGauge = MultiGauge.builder("faf.user.agents").register(meterRegistry);
     }
 
     @PostConstruct
@@ -161,6 +169,7 @@ public class MessageBroker {
         return message.ack();
     }
 
+    @Timed(value = "faf.messages", extraTags = {"direction", "inbound"}, histogram = true)
     public void handleInboundMessage(InboundPassthroughMessage inboundLobbyMessage) {
         switch (inboundLobbyMessage.message()) {
             case PassthroughMessage.Lobby lobbyPassthrough -> {
@@ -226,7 +235,7 @@ public class MessageBroker {
 
     @MDCPopulated
     @Incoming("lobby-outbound")
-    @Timed(value = "faf.messages.outbound", histogram = true)
+    @Timed(value = "faf.messages", extraTags = {"direction", "outbound"}, histogram = true)
     void handleOutboundMessage(@MeterTag(value = "command",
                                          resolver = ProtocolMessageCommandResolver.class) OutboundPassthroughMessage outboundPassthroughMessage) {
         ProtocolMessage.Outgoing message = outboundPassthroughMessage.message();

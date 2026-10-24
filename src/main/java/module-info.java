@@ -37,4 +37,5 @@ module com.faforever.messagebroker {
     requires org.jboss.logging;
 
     requires static lombok;
+    requires quarkus.virtual.threads;
 }
