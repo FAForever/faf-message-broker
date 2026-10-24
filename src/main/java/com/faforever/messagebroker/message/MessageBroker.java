@@ -89,11 +89,11 @@ public class MessageBroker {
         this.sessionHandlerMap = meterRegistry.gaugeMapSize("faf.sessions", Set.of(), new ConcurrentHashMap<>());
         this.playerSessionMap = meterRegistry.gaugeMapSize("faf.players", Set.of(), new ConcurrentHashMap<>());
         this.lobbySchemas = meterRegistry.gaugeMapSize("faf.schemas", Set.of(), new ConcurrentHashMap<>());
-        meterRegistry.gauge("faf.outgoing.messages.queued", sessionHandlerMap.values(),
+        meterRegistry.gauge("faf.messages.queued", Tags.of("direction", "outbound"), sessionHandlerMap.values(),
                             sessionHandlers -> sessionHandlers.stream()
                                                               .mapToInt(SessionHandler::numOutboundQueuedMessages)
                                                               .sum());
-        meterRegistry.gauge("faf.incoming.messages.queued", sessionHandlerMap.values(),
+        meterRegistry.gauge("faf.messages.queued", Tags.of("direction", "inbound"), sessionHandlerMap.values(),
                             sessionHandlers -> sessionHandlers.stream()
                                                               .mapToInt(SessionHandler::numInboundQueuedMessages)
                                                               .sum());
@@ -169,7 +169,7 @@ public class MessageBroker {
         return message.ack();
     }
 
-    @Timed(value = "faf.messages.inbound", histogram = true)
+    @Timed(value = "faf.messages", extraTags = {"direction", "inbound"}, histogram = true)
     public void handleInboundMessage(InboundPassthroughMessage inboundLobbyMessage) {
         switch (inboundLobbyMessage.message()) {
             case PassthroughMessage.Lobby lobbyPassthrough -> {
@@ -235,7 +235,7 @@ public class MessageBroker {
 
     @MDCPopulated
     @Incoming("lobby-outbound")
-    @Timed(value = "faf.messages.outbound", histogram = true)
+    @Timed(value = "faf.messages", extraTags = {"direction", "outbound"}, histogram = true)
     void handleOutboundMessage(@MeterTag(value = "command",
                                          resolver = ProtocolMessageCommandResolver.class) OutboundPassthroughMessage outboundPassthroughMessage) {
         ProtocolMessage.Outgoing message = outboundPassthroughMessage.message();

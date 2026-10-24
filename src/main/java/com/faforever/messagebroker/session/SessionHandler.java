@@ -14,6 +14,7 @@ import com.faforever.messagebroker.policy.PolicyClient;
 import com.faforever.messagebroker.policy.PolicyContents;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.aop.MeterTag;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.quarkus.virtual.threads.VirtualThreads;
@@ -52,6 +53,8 @@ public class SessionHandler {
 
     private final Timer outboundSendTimer;
     private final Timer inboundSendTimer;
+    private final Counter inboundDroppedMessageCounter;
+    private final Counter outboundDroppedMessageCounter;
 
     private @Nullable String remoteIp;
     private @Nullable Integer playerId;
@@ -71,8 +74,10 @@ public class SessionHandler {
         this.usePolicyServer = fafProperties.usePolicyServer();
         this.incomingQueue = new ArrayBlockingQueue<>(fafProperties.maxMessageQueueSize(), true);
         this.outgoingQueue = new ArrayBlockingQueue<>(fafProperties.maxMessageQueueSize(), true);
-        this.outboundSendTimer = meterRegistry.timer("faf.outbound.send");
-        this.inboundSendTimer = meterRegistry.timer("faf.inbound.send");
+        this.outboundSendTimer = meterRegistry.timer("faf.send", "direction", "outbound");
+        this.inboundSendTimer = meterRegistry.timer("faf.send", "direction", "inbound");
+        this.outboundDroppedMessageCounter = meterRegistry.counter("faf.messages.dropped", "direction", "outbound");
+        this.inboundDroppedMessageCounter = meterRegistry.counter("faf.messages.dropped", "direction", "inbound");
     }
 
     @MDCPopulated
@@ -126,6 +131,7 @@ public class SessionHandler {
         }
         if (!outgoingQueue.offer(message)) {
             LOG.warn("Unable to queue outbound message to due to full capacity");
+            outboundDroppedMessageCounter.increment();
         }
     }
 
@@ -143,6 +149,7 @@ public class SessionHandler {
 
                 if (!incomingQueue.offer(passthrough)) {
                     LOG.warn("Unable to queue inbound message due to full capacity");
+                    inboundDroppedMessageCounter.increment();
                 }
             }
         }
@@ -206,7 +213,7 @@ public class SessionHandler {
             PassthroughMessage message;
             while ((message = incomingQueue.poll()) != null) {
                 PassthroughMessage messageToSend = message;
-                outboundSendTimer.record(() -> messageBroker.handleInboundMessage(
+                inboundSendTimer.record(() -> messageBroker.handleInboundMessage(
                         new InboundPassthroughMessage(sessionId, playerId, messageToSend)));
             }
         } catch (RuntimeException exception) {
