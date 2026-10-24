@@ -1,3 +1,4 @@
+import com.adarshr.gradle.testlogger.theme.ThemeType
 import net.ltgt.gradle.errorprone.errorprone
 import net.ltgt.gradle.nullaway.nullaway
 
@@ -7,6 +8,8 @@ plugins {
     id("org.gradlex.extra-java-module-info") version("1.14.2")
     id("net.ltgt.errorprone") version ("5.1.0")
     id("net.ltgt.nullaway") version ("3.0.0")
+    id("com.adarshr.test-logger") version "4.0.0"
+
 }
 
 group = "com.faforever"
@@ -56,6 +59,13 @@ dependencies {
     testImplementation("io.quarkus:quarkus-junit-mockito")
     testImplementation("org.hamcrest:hamcrest")
     testImplementation("org.skyscreamer:jsonassert:1.5.3")
+}
+
+testlogger {
+    theme = ThemeType.STANDARD_PARALLEL
+    showFullStackTraces = false
+    showPassed = false
+    showStandardStreams = false
 }
 
 extraJavaModuleInfo {
