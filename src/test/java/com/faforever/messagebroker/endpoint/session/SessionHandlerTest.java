@@ -44,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.atMostOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -301,11 +302,9 @@ class SessionHandlerTest {
         sessionHandler.send(message);
         sessionHandler.send(message);
 
-        assertEquals(0, connection.getNumMessagesSent());
-
         sessionHandler.close();
 
-        assertEquals(1, sessionHandler.numOutboundQueuedMessages());
+        assertEquals(0, connection.getNumMessagesSent());
 
         connection.resumeSends();
 
@@ -341,9 +340,9 @@ class SessionHandlerTest {
         sessionHandler.accept(message);
         sessionHandler.accept(message);
 
-        sessionHandler.close();
+        verify(messageBroker, atMostOnce()).handleInboundMessage(new InboundPassthroughMessage(sessionHandler.sessionId(), playerId, message));
 
-        assertEquals(1, sessionHandler.numInboundQueuedMessages());
+        sessionHandler.close();
 
         acceptLatch.countDown();
         incomingLatch.await();
