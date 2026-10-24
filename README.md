@@ -15,7 +15,7 @@ RabbitMQ messaging infrastructure, enforcing JSON schema validation and JWT auth
 - [Key Features](#key-features)
 - [Tech Stack](#tech-stack)
 - [Messaging & Communication Flow](#messaging--communication-flow)
-    - [WebSocket Endpoints](#websocket-endpoints)
+    - [WebSocket Endpoints & Session Message Queuing](#websocket-endpoints--session-message-queuing)
     - [RabbitMQ Channels](#rabbitmq-channels)
 - [Configuration Reference](#configuration-reference)
 - [Database & Migrations](#database--migrations)
@@ -63,7 +63,10 @@ microservices:
 ## Key Features
 
 - **Virtual Thread Concurrency**: Utilizes Java 25 virtual threads (`@RunOnVirtualThread`) for scalable connection
-  handling.
+  handling and asynchronous message draining.
+- **Asynchronous Session Message Queues**:
+    - Bounded per-session incoming and outgoing queues (`ArrayBlockingQueue`) drained asynchronously on virtual threads.
+    - Prevents blocking on slow network clients or broker dispatch and tracks queue metrics and dropped messages.
 - **Bi-directional Passthrough & Routing**:
     - Inbound lobby and GPG (`target: game`) messages validated and published to RabbitMQ.
     - Inbound messages failing validation or lacking registered schemas trigger a structured `failed_message` client
@@ -99,7 +102,7 @@ microservices:
 
 ## Messaging & Communication Flow
 
-### WebSocket Endpoints
+### WebSocket Endpoints & Session Message Queuing
 
 - **Path**: `/` (Default port: `8003`)
 - **Connection Handshake & Lifecycle**:
@@ -123,29 +126,34 @@ microservices:
        ```
        Registered lobby schemas dynamically include an optional `request_id` property, allowing clients to correlate
        validation error responses with specific outbound requests.
+- **Session Message Queuing & Draining**:
+    - **Inbound Queue**: Incoming passthrough messages are placed into a bounded blocking queue (`ArrayBlockingQueue`) per session. Once the session is authenticated, messages are drained asynchronously on a virtual thread (`drainExecutor`) and forwarded to `MessageBroker`.
+    - **Outbound Queue**: Outgoing protocol messages sent to the session are buffered in a bounded queue and drained asynchronously on a dedicated virtual thread directly to the WebSocket connection.
+    - **Backpressure & Capacity Limits**: The queue capacity is configured via `faf.max-message-queue-size` (default: `100`). If a queue is full, new messages are dropped and tracked via the `faf.messages.dropped` counter.
+    - **Session Teardown**: When a session closes or disconnects, remaining queued messages are drained before the connection is terminated.
 
 ### RabbitMQ Channels
 
-| Channel                     | Direction                         | VHost       | Target Exchange / Queue                                                   | Description                                                                                                                                          |
-|:----------------------------|:----------------------------------|:------------|:--------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| `lobby-inbound`             | Outgoing (Broker &rarr; RabbitMQ) | `/faf-core` | `message.inbound.client`                                                  | Transmits validated inbound client messages with routing keys matching `lobby.<route>.<command>` or `gpg.<command>`.                                 |
-| `lobby-outbound`            | Incoming (RabbitMQ &rarr; Broker) | `/faf-core` | `message.outbound.client`<br>`message.outbound.client.${faf.instance-id}` | Receives outbound messages targeted to a session (`Session`), player (`Player`), or broadcast (`All`).                                               |
-| `lobby-schema-request`      | Outgoing (Broker &rarr; RabbitMQ) | `/faf-core` | `request.schema`                                                          | Dispatches a schema request on broker startup with `reply_to` pointing to the instance's schema registration queue.                                  |
-| `lobby-schema-registration` | Incoming (RabbitMQ &rarr; Broker) | `/faf-core` | `register.schema`<br>`register.schema.${faf.instance-id}`                 | Receives runtime schema registrations to dynamically update validation rules and persist them to PostgreSQL.                                         |
-| `player-active-request`     | Incoming (RabbitMQ &rarr; Broker) | `/faf-core` | `request.connection`<br>`request.connection.${faf.instance-id}`           | Receives queries for all currently active player sessions. The broker responds by publishing current player connection states with reply-to routing. |
-| `player-connection`         | Outgoing (Broker &rarr; RabbitMQ) | `/faf-core` | `register.connection`                                                     | Broadcasts player session lifecycle states (`new`, `existing` keepalives / query responses, and `gone`) with TTL expiry to backend services.         |
+| Channel                     | Direction                         | VHost       | Target Exchange / Queue                                                                                              | Description                                                                                                                                          |
+|:----------------------------|:----------------------------------|:------------|:---------------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `lobby-inbound`             | Outgoing (Broker &rarr; RabbitMQ) | `/faf-core` | Exchange: `lobby-message-inbound`                                                                                    | Transmits validated inbound client messages with routing keys matching `lobby.<route>.<command>` or `gpg.<command>`.                                 |
+| `lobby-outbound`            | Incoming (RabbitMQ &rarr; Broker) | `/faf-core` | Exchange: `lobby-message-outbound`<br>Queue: `broker.message.outbound.${faf.instance-id}`                            | Receives outbound messages targeted to a session (`Session`), player (`Player`), or broadcast (`All`).                                               |
+| `lobby-schema-request`      | Outgoing (Broker &rarr; RabbitMQ) | `/faf-core` | Exchange: `lobby-schema-request`                                                                                     | Dispatches a schema request on broker startup with `reply_to` pointing to the instance's schema registration queue (`broker.schema.registration.${faf.instance-id}`). |
+| `lobby-schema-registration` | Incoming (RabbitMQ &rarr; Broker) | `/faf-core` | Exchange: `lobby-schema-register`<br>Queue: `broker.schema.registration.${faf.instance-id}`                          | Receives runtime schema registrations to dynamically update validation rules and persist them to PostgreSQL.                                         |
+| `player-active-request`     | Incoming (RabbitMQ &rarr; Broker) | `/faf-core` | Exchange: `lobby-session-request`<br>Queue: `broker.session.request.${faf.instance-id}`                             | Receives queries for all currently active player sessions. The broker responds by publishing current player connection states with reply-to routing. |
+| `player-connection`         | Outgoing (Broker &rarr; RabbitMQ) | `/faf-core` | Exchange: `lobby-session-state`                                                                                      | Broadcasts player session lifecycle states (`new`, `existing` keepalives / query responses, and `gone`) with TTL expiry to backend services.         |
 
 #### Player Session Tracking & Active Player Requests
 
 - **Connection Lifecycle Events**:
-    - **`new`**: Emitted via `player-connection` when a player authenticates and establishes a new session. Includes TTL
+    - **`new`**: Emitted via `player-connection` (to exchange `lobby-session-state`) when a player authenticates and establishes a new session. Includes TTL
       expiry duration (`faf.player-session-status-refresh-period * 2`).
     - **`gone`**: Emitted via `player-connection` when a session disconnects or is unregistered.
     - **`existing`**: Periodically broadcast via `player-connection` as a keepalive heartbeat for all active sessions on
       a scheduled interval (`faf.player-session-status-refresh-period`, default `1m`).
 - **Active Player Query (RPC)**:
-    - Backend services can request an immediate snapshot of active players by publishing a message to
-      `request.connection` (`player-active-request`) with a RabbitMQ `replyTo` queue header.
+    - Backend services can request an immediate snapshot of active players by publishing a message to exchange
+      `lobby-session-request` (`player-active-request`) with a RabbitMQ `replyTo` queue header.
     - The broker handles the request by iterating over all active player sessions and publishing `existing` state
       messages addressed to the requester's `replyTo` routing key via `player-connection`.
 
@@ -155,25 +163,29 @@ microservices:
 
 The application is configured via `src/main/resources/application.yml` and supports the following environment variables:
 
-| Variable                | Description                                                                                                        | Default                                       |
-|:------------------------|:-------------------------------------------------------------------------------------------------------------------|:----------------------------------------------|
-| `DATABASE_HOST`         | PostgreSQL host                                                                                                    | `localhost`                                   |
-| `DATABASE_PORT`         | PostgreSQL port                                                                                                    | `5432`                                        |
-| `DATABASE_NAME`         | Database name                                                                                                      | `faf-messages`                                |
-| `DATABASE_USER`         | Database user                                                                                                      | `faf-message-broker`                          |
-| `DATABASE_PASS`         | Database password                                                                                                  | `banana`                                      |
-| `RABBITMQ_HOST`         | RabbitMQ host                                                                                                      | `localhost`                                   |
-| `RABBITMQ_PORT`         | RabbitMQ port                                                                                                      | `5672`                                        |
-| `RABBITMQ_USER`         | RabbitMQ user                                                                                                      | `faf-message-broker`                          |
-| `RABBITMQ_PASSWORD`     | RabbitMQ password                                                                                                  | `banana`                                      |
-| `RABBITMQ_VHOST`        | RabbitMQ virtual host                                                                                              | `/faf-core`                                   |
-| `ALLOWED_HOST`          | Allowed HTTP/WebSocket host header validation                                                                      | `ws.faforever.localhost,localhost`            |
-| `HYDRA_TOKEN_ISSUER`    | Expected JWT issuer                                                                                                | `http://ory-hydra:4444`                       |
-| `HYDRA_JWKS_URL`        | Ory Hydra JWKS public key endpoint                                                                                 | `http://localhost:4444/.well-known/jwks.json` |
-| `USE_POLICY_SERVER`     | Enable or disable verification with policy server                                                                  | `false`                                       |
-| `POLICY_SERVER_URL`     | Base URL of the policy verification service                                                                        | `http://localhost:8097`                       |
-| `HOSTNAME`              | Instance identifier (`faf.instance-id`) used for unique RabbitMQ queue names                                       | `local`                                       |
-| `STATUS_REFRESH_PERIOD` | Periodic refresh interval for active player session status broadcasts (`faf.player-session-status-refresh-period`) | `1m`                                          |
+| Variable                   | Description                                                                                                        | Default                                       |
+|:---------------------------|:-------------------------------------------------------------------------------------------------------------------|:----------------------------------------------|
+| `DATABASE_HOST`            | PostgreSQL host                                                                                                    | `localhost`                                   |
+| `DATABASE_PORT`            | PostgreSQL port                                                                                                    | `5432`                                        |
+| `DATABASE_NAME`            | Database name                                                                                                      | `faf-messages`                                |
+| `DATABASE_USER`            | Database user                                                                                                      | `faf-message-broker`                          |
+| `DATABASE_PASS`            | Database password                                                                                                  | `banana`                                      |
+| `RABBITMQ_HOST`            | RabbitMQ host                                                                                                      | `localhost`                                   |
+| `RABBITMQ_PORT`            | RabbitMQ port                                                                                                      | `5672`                                        |
+| `RABBITMQ_USER`            | RabbitMQ user                                                                                                      | `faf-message-broker`                          |
+| `RABBITMQ_PASSWORD`        | RabbitMQ password                                                                                                  | `banana`                                      |
+| `RABBITMQ_VHOST`           | RabbitMQ virtual host                                                                                              | `/faf-core`                                   |
+| `ALLOWED_HOST`             | Allowed HTTP/WebSocket host header validation                                                                      | `ws.faforever.localhost,localhost`            |
+| `HYDRA_TOKEN_ISSUER`       | Expected JWT issuer                                                                                                | `http://ory-hydra:4444`                       |
+| `HYDRA_JWKS_URL`           | Ory Hydra JWKS public key endpoint                                                                                 | `http://localhost:4444/.well-known/jwks.json` |
+| `USE_POLICY_SERVER`        | Enable or disable verification with policy server                                                                  | `false`                                       |
+| `POLICY_SERVER_URL`        | Base URL of the policy verification service                                                                        | `http://localhost:8097`                       |
+| `HOSTNAME`                 | Instance identifier (`faf.instance-id`) used for unique RabbitMQ queue names                                       | `local`                                       |
+| `STATUS_REFRESH_PERIOD`    | Periodic refresh interval for active player session status broadcasts (`faf.player-session-status-refresh-period`) | `1m`                                          |
+| `REAL_IP_HEADER`           | HTTP header used to extract real client IP from WebSocket connection (`faf.real-ip-header`)                         | `X-Real-IP`                                   |
+| `MAX_MESSAGE_QUEUE_SIZE`   | Maximum message queue capacity for inbound and outbound session queues (`faf.max-message-queue-size`)              | `100`                                         |
+| `PUBLISH_UNKNOWN_MESSAGES` | Forward unknown inbound messages without registered schemas (`faf.publish-unknown-messages`)                       | `false`                                       |
+| `UNKNOWN_MESSAGE_ROUTE`    | Route key used when forwarding unknown inbound messages (`faf.unknown-message-route`)                              | `legacy`                                      |
 
 ---
 
