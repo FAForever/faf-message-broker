@@ -85,7 +85,7 @@ public class SessionHandler {
         if (outgoingDrainFuture != null) {
             throw new IllegalStateException("Attempting to start a connection that has already been started");
         }
-        outgoingDrainFuture = drainExecutor.submit(() -> drainOutgoingUsing(connection));
+        outgoingDrainFuture = drainExecutor.submit(() -> drainOutgoingTo(connection));
         remoteIp = connection.remoteIp();
         LOG.info("Session established");
     }
@@ -234,7 +234,7 @@ public class SessionHandler {
         }
     }
 
-    private void drainOutgoingUsing(LobbyConnection connection) {
+    private void drainOutgoingTo(LobbyConnection connection) {
         try {
             try {
                 while (!Thread.currentThread().isInterrupted()) {
