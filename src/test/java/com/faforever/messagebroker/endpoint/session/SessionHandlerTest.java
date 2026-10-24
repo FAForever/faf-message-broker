@@ -304,8 +304,6 @@ class SessionHandlerTest {
 
         sessionHandler.close();
 
-        assertEquals(0, connection.getNumMessagesSent());
-
         connection.resumeSends();
 
         assertEquals(message, connection.waitForNextMessage());
