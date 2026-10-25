@@ -17,6 +17,7 @@ import io.quarkus.test.component.TestConfigProperty;
 import io.smallrye.jwt.auth.principal.JWTParser;
 import io.smallrye.jwt.auth.principal.ParseException;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.jspecify.annotations.Nullable;
@@ -62,9 +63,6 @@ class SessionHandlerTest {
     SessionHandler sessionHandler;
 
     @InjectMock
-    private ExecutorService mockExecutor;
-
-    @InjectMock
     private MessageBroker messageBroker;
 
     @InjectMock
@@ -73,13 +71,10 @@ class SessionHandlerTest {
     @InjectMock
     private JWTParser jwtParser;
 
-    private final ExecutorService virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private final TestLobbyConnection connection = new TestLobbyConnection();
 
     @BeforeEach
     void setConnection() {
-        when(mockExecutor.submit(any(Runnable.class))).thenAnswer(
-                invocation -> virtualThreadExecutor.submit(invocation.getArgument(0, Runnable.class)));
         sessionHandler.setConnection(connection);
     }
 
@@ -393,6 +388,15 @@ class SessionHandlerTest {
         ObjectNode node = JsonNodeFactory.instance.objectNode();
         node.put("command", "test");
         return PassthroughMessage.of(node);
+    }
+
+    static class ExecutorProvider {
+
+        @Produces
+        ExecutorService executorService() {
+            return Executors.newVirtualThreadPerTaskExecutor();
+        }
+
     }
 
     @ApplicationScoped

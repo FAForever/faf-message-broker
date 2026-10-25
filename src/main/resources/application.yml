@@ -117,6 +117,8 @@ rabbitmq-virtual-host: ${RABBITMQ_VHOST:/faf-core}
   faf:
     publish-unknown-messages: true
   quarkus:
+    management:
+      enabled: false
     live-reload:
       instrumentation: true
     log:
