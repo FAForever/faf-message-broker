@@ -106,7 +106,7 @@ public class SessionHandler {
 
     @MDCPopulated
     public void close() {
-        LOG.debug("Session closing");
+        LOG.info("Session closing");
         Integer existingPlayerId = playerId;
         if (existingPlayerId != null) {
             messageBroker.unregisterSession(existingPlayerId, this);
