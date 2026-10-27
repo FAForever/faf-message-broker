@@ -209,15 +209,19 @@ public class MessageBroker {
         LobbySchemaRoute lobbySchemaRoute = lobbySchemas.get(
                 new LobbySchemaKey(command, LobbySchemaDetails.Direction.INBOUND));
         if (lobbySchemaRoute == null) {
-            LOG.debug("Unknown message type");
-            return fafProperties.publishUnknownMessages() ? fafProperties.unknownMessageRoute() : null;
+            if (!fafProperties.publishUnknownMessages()) {
+                LOG.info("Unknown message type: {}", lobbyPassthrough.message());
+                return null;
+            } else {
+                return fafProperties.unknownMessageRoute();
+            }
         }
 
         Schema schema = lobbySchemaRoute.schema();
 
         List<Error> errors = schema.validate(lobbyPassthrough.message());
         if (!errors.isEmpty()) {
-            LOG.warn("Invalid message received: " + errors);
+            LOG.warn("Invalid message received. Error: {}, Message: {}", errors, lobbyPassthrough.message());
             return null;
         }
 
@@ -227,7 +231,7 @@ public class MessageBroker {
     private boolean validateGPGPassthrough(PassthroughMessage.GPG gpgPassthrough) {
         List<Error> errors = gameSchema.validate(gpgPassthrough.message());
         if (!errors.isEmpty()) {
-            LOG.warn("Invalid message received: " + errors);
+            LOG.warn("Invalid message received. Error: {}, Message: {}", errors, gpgPassthrough.message());
             return false;
         }
         return true;

@@ -17,7 +17,6 @@ import io.quarkus.test.component.TestConfigProperty;
 import io.smallrye.jwt.auth.principal.JWTParser;
 import io.smallrye.jwt.auth.principal.ParseException;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.jspecify.annotations.Nullable;
@@ -33,8 +32,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.LongAdder;
 
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -388,15 +385,6 @@ class SessionHandlerTest {
         ObjectNode node = JsonNodeFactory.instance.objectNode();
         node.put("command", "test");
         return PassthroughMessage.of(node);
-    }
-
-    static class ExecutorProvider {
-
-        @Produces
-        ExecutorService executorService() {
-            return Executors.newVirtualThreadPerTaskExecutor();
-        }
-
     }
 
     @ApplicationScoped

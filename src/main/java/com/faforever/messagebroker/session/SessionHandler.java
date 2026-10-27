@@ -17,7 +17,6 @@ import io.micrometer.core.aop.MeterTag;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
-import io.quarkus.virtual.threads.VirtualThreads;
 import io.smallrye.jwt.auth.principal.JWTParser;
 import io.smallrye.jwt.auth.principal.ParseException;
 import jakarta.annotation.PreDestroy;
@@ -31,9 +30,6 @@ import org.slf4j.spi.LoggingEventBuilder;
 import java.util.SplittableRandom;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
 
 @Slf4j
 @Dependent
@@ -42,7 +38,6 @@ public class SessionHandler {
     private static final UserAgent NO_USERAGENT = new UserAgent(null, null);
 
     private final MessageBroker messageBroker;
-    private final ExecutorService drainExecutor;
 
     private final PolicyClient policyClient;
     private final JWTParser jwtParser;
@@ -56,21 +51,21 @@ public class SessionHandler {
     private final Counter inboundDroppedMessageCounter;
     private final Counter outboundDroppedMessageCounter;
 
-    private @Nullable String remoteIp;
-    private @Nullable Integer playerId;
     private UserAgent userAgent = NO_USERAGENT;
     private final long sessionId = new SplittableRandom().nextLong(Long.MAX_VALUE);
 
-    private @Nullable Future<?> outgoingDrainFuture;
-    private @Nullable Future<?> incomingDrainFuture;
+    private @Nullable String remoteIp;
+    private volatile @Nullable Integer playerId;
+    private volatile @Nullable Thread outgoingDrainThread;
+    private volatile @Nullable Thread incomingDrainThread;
+    private volatile boolean closed;
 
     public SessionHandler(MessageBroker messageBroker, FAFProperties fafProperties,
                           @RestClient PolicyClient policyClient, JWTParser jwtParser,
-                          @VirtualThreads ExecutorService drainExecutor, MeterRegistry meterRegistry) {
+                          MeterRegistry meterRegistry) {
         this.messageBroker = messageBroker;
         this.policyClient = policyClient;
         this.jwtParser = jwtParser;
-        this.drainExecutor = drainExecutor;
         this.usePolicyServer = fafProperties.usePolicyServer();
         this.incomingQueue = new ArrayBlockingQueue<>(fafProperties.maxMessageQueueSize(), true);
         this.outgoingQueue = new ArrayBlockingQueue<>(fafProperties.maxMessageQueueSize(), true);
@@ -82,10 +77,13 @@ public class SessionHandler {
 
     @MDCPopulated
     public void setConnection(LobbyConnection connection) {
-        if (outgoingDrainFuture != null) {
+        if (outgoingDrainThread != null) {
             throw new IllegalStateException("Attempting to start a connection that has already been started");
         }
-        outgoingDrainFuture = drainExecutor.submit(() -> drainOutgoingTo(connection));
+        if (closed) {
+            throw new IllegalStateException("Attempting to start a connection that has already been closed");
+        }
+        outgoingDrainThread = Thread.ofVirtual().name("session-outgoing-" + sessionId).start(() -> drainOutgoingTo(connection));
         remoteIp = connection.remoteIp();
         LOG.info("Session established");
     }
@@ -106,30 +104,32 @@ public class SessionHandler {
 
     @MDCPopulated
     public void close() {
-        LOG.debug("Session closing");
-        Integer existingPlayerId = playerId;
-        if (existingPlayerId != null) {
-            messageBroker.unregisterSession(existingPlayerId, this);
-            playerId = null;
+        if (closed) {
+            LOG.info("Session closing");
+        } else {
+            LOG.info("Ensuring session closed");
         }
 
-        Future<?> existingOutgoingDrainFuture = outgoingDrainFuture;
-        if (existingOutgoingDrainFuture != null) {
-            existingOutgoingDrainFuture.cancel(true);
-        } else {
-            outgoingDrainFuture = CompletableFuture.completedFuture(null);
+        Integer playerId = this.playerId;
+        if (playerId != null) {
+            messageBroker.unregisterSession(playerId, this);
+            this.playerId = null;
         }
 
-        Future<?> existingIncomingDrainFuture = incomingDrainFuture;
-        if (existingIncomingDrainFuture != null) {
-            existingIncomingDrainFuture.cancel(true);
-        } else {
-            incomingDrainFuture = CompletableFuture.completedFuture(null);
+        closed = true;
+        Thread outgoingDrainThread = this.outgoingDrainThread;
+        if (outgoingDrainThread != null) {
+            outgoingDrainThread.interrupt();
+        }
+
+        Thread incomingDrainThread = this.incomingDrainThread;
+        if (incomingDrainThread != null) {
+            incomingDrainThread.interrupt();
         }
     }
 
     public void send(ProtocolMessage.Outgoing message) {
-        if (outgoingDrainFuture != null && (outgoingDrainFuture.isDone() || outgoingDrainFuture.isCancelled())) {
+        if (closed) {
             LOG.warn("Attempted to queue outgoing message on connection that was closed");
             return;
         }
@@ -143,14 +143,14 @@ public class SessionHandler {
     @Timed(value = "faf.messages.inbound", histogram = true)
     public void accept(@MeterTag(value = "command",
                                  resolver = ProtocolMessageCommandResolver.class) ProtocolMessage.Incoming message) {
+        if (closed) {
+            LOG.warn("Incoming message received on connection that was closed");
+            return;
+        }
+
         switch (message) {
             case ConnectionMessage.Incoming connectionMessage -> handleConnectionMessage(connectionMessage);
             case PassthroughMessage passthrough -> {
-                if (incomingDrainFuture != null && (incomingDrainFuture.isDone() || incomingDrainFuture.isCancelled())) {
-                    LOG.warn("Attempted to queue incoming message on connection that was closed");
-                    return;
-                }
-
                 if (!incomingQueue.offer(passthrough)) {
                     LOG.warn("Unable to queue inbound message due to full capacity");
                     inboundDroppedMessageCounter.increment();
@@ -199,7 +199,7 @@ public class SessionHandler {
                 }
                 messageBroker.registerSession(playerId, this);
                 this.playerId = playerId;
-                incomingDrainFuture = drainExecutor.submit(() -> drainIncomingAs(playerId));
+                incomingDrainThread = Thread.ofVirtual().name("session-incoming-" + sessionId).start(() -> drainIncomingAs(playerId));
             }
         }
     }
@@ -207,7 +207,7 @@ public class SessionHandler {
     private void drainIncomingAs(int playerId) {
         try {
             try {
-                while (!Thread.currentThread().isInterrupted()) {
+                while (!(Thread.interrupted() || closed)) {
                     PassthroughMessage message = incomingQueue.take();
                     inboundSendTimer.record(() -> messageBroker.handleInboundMessage(
                             new InboundPassthroughMessage(sessionId, playerId, message)));
@@ -231,13 +231,14 @@ public class SessionHandler {
                .addKeyValue(MDCInterceptor.SESSION_ID, sessionId)
                .addKeyValue(MDCInterceptor.PLAYER_ID, playerId)
                .log("Session incoming closed");
+            close();
         }
     }
 
     private void drainOutgoingTo(LobbyConnection connection) {
         try {
             try {
-                while (!Thread.currentThread().isInterrupted()) {
+                while (!(Thread.interrupted() || closed)) {
                     ProtocolMessage.Outgoing message = outgoingQueue.take();
                     outboundSendTimer.record(() -> connection.send(message));
                 }
