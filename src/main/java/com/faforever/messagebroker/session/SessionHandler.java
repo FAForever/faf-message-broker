@@ -207,7 +207,7 @@ public class SessionHandler {
     private void drainIncomingAs(int playerId) {
         try {
             try {
-                while (!Thread.interrupted() || !closed) {
+                while (!(Thread.interrupted() || closed)) {
                     PassthroughMessage message = incomingQueue.take();
                     inboundSendTimer.record(() -> messageBroker.handleInboundMessage(
                             new InboundPassthroughMessage(sessionId, playerId, message)));
@@ -238,7 +238,7 @@ public class SessionHandler {
     private void drainOutgoingTo(LobbyConnection connection) {
         try {
             try {
-                while (!Thread.interrupted() || !closed) {
+                while (!(Thread.interrupted() || closed)) {
                     ProtocolMessage.Outgoing message = outgoingQueue.take();
                     outboundSendTimer.record(() -> connection.send(message));
                 }
