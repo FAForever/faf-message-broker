@@ -69,8 +69,8 @@ public class SessionHandler {
         this.usePolicyServer = fafProperties.usePolicyServer();
         this.incomingQueue = new ArrayBlockingQueue<>(fafProperties.maxMessageQueueSize(), true);
         this.outgoingQueue = new ArrayBlockingQueue<>(fafProperties.maxMessageQueueSize(), true);
-        this.outboundSendTimer = meterRegistry.timer("faf.send", "direction", "outbound");
-        this.inboundSendTimer = meterRegistry.timer("faf.send", "direction", "inbound");
+        this.outboundSendTimer = Timer.builder("faf.send").tag("direction", "outbound").publishPercentileHistogram().register(meterRegistry);
+        this.inboundSendTimer = Timer.builder("faf.send").tag("direction", "inbound").publishPercentileHistogram().register(meterRegistry);
         this.outboundDroppedMessageCounter = meterRegistry.counter("faf.messages.dropped", "direction", "outbound");
         this.inboundDroppedMessageCounter = meterRegistry.counter("faf.messages.dropped", "direction", "inbound");
     }
