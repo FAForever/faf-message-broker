@@ -51,11 +51,11 @@ public class SessionHandler {
     private final Counter inboundDroppedMessageCounter;
     private final Counter outboundDroppedMessageCounter;
 
-    private @Nullable String remoteIp;
-    private @Nullable Integer playerId;
     private UserAgent userAgent = NO_USERAGENT;
     private final long sessionId = new SplittableRandom().nextLong(Long.MAX_VALUE);
 
+    private @Nullable String remoteIp;
+    private volatile @Nullable Integer playerId;
     private volatile @Nullable Thread outgoingDrainThread;
     private volatile @Nullable Thread incomingDrainThread;
     private volatile boolean closed;
@@ -105,10 +105,10 @@ public class SessionHandler {
     @MDCPopulated
     public void close() {
         LOG.info("Session closing");
-        Integer existingPlayerId = playerId;
-        if (existingPlayerId != null) {
-            messageBroker.unregisterSession(existingPlayerId, this);
-            playerId = null;
+        Integer playerId = this.playerId;
+        if (playerId != null) {
+            messageBroker.unregisterSession(playerId, this);
+            this.playerId = null;
         }
 
         closed = true;
