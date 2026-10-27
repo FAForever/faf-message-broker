@@ -104,7 +104,12 @@ public class SessionHandler {
 
     @MDCPopulated
     public void close() {
-        LOG.info("Session closing");
+        if (closed) {
+            LOG.info("Session closing");
+        } else {
+            LOG.info("Ensuring session closed");
+        }
+
         Integer playerId = this.playerId;
         if (playerId != null) {
             messageBroker.unregisterSession(playerId, this);
@@ -226,6 +231,7 @@ public class SessionHandler {
                .addKeyValue(MDCInterceptor.SESSION_ID, sessionId)
                .addKeyValue(MDCInterceptor.PLAYER_ID, playerId)
                .log("Session incoming closed");
+            close();
         }
     }
 
