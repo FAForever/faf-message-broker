@@ -7,10 +7,19 @@ import org.jspecify.annotations.Nullable;
 
 import java.time.Duration;
 
+/**
+ * A session as the lobby server is told about it.
+ *
+ * @param userAgent the client's own name for itself, from its {@code ask_session}; the lobby server records it as
+ *                  the player's {@code login.user_agent}, which it used to read from that message itself
+ * @param version   the client's version, from the same message
+ */
 public record PlayerSessionState(
         int playerId,
         long sessionId,
         @Nullable String ipAddress,
+        @Nullable String userAgent,
+        @Nullable String version,
         State state
 ) {
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME)

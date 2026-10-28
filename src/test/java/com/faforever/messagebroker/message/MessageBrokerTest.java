@@ -53,6 +53,8 @@ class MessageBrokerTest {
     private static final long SESSION_ID_1 = 2;
     private static final long SESSION_ID_2 = 3;
     private static final String REMOTE_IP = "127.0.0.1";
+    private static final String USER_AGENT = "faf-client-rust";
+    private static final String VERSION = "0.9.2";
 
     private static final String COMMAND = "test";
     private static final String SCHEMA_STRING = """
@@ -89,7 +91,7 @@ class MessageBrokerTest {
             when(sessionHandler.playerId()).thenReturn(PLAYER_ID);
             when(sessionHandler.sessionId()).thenReturn(SESSION_ID_1);
             when(sessionHandler.remoteIp()).thenReturn(REMOTE_IP);
-            when(sessionHandler.userAgent()).thenReturn(new UserAgent(null, null));
+            when(sessionHandler.userAgent()).thenReturn(new UserAgent(USER_AGENT, VERSION));
         }
 
         @Test
@@ -97,19 +99,19 @@ class MessageBrokerTest {
         void testRegistration() {
             messageBroker.registerSession(PLAYER_ID, sessionHandler);
 
-            verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP,
+            verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP, USER_AGENT, VERSION,
                                                                         new PlayerSessionState.State.New(
                                                                                 Duration.ofMinutes(5))));
 
             messageBroker.sendPlayerSessionUpdates();
 
-            verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP,
+            verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP, USER_AGENT, VERSION,
                                                                         new PlayerSessionState.State.Existing(
                                                                                 Duration.ofMinutes(5))));
 
             messageBroker.unregisterSession(PLAYER_ID, sessionHandler);
 
-            verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP,
+            verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP, USER_AGENT, VERSION,
                                                                         new PlayerSessionState.State.Gone()));
         }
 
@@ -135,7 +137,7 @@ class MessageBrokerTest {
             assertEquals("test.queue", activeMessage.getMetadata(OutgoingRabbitMQMetadata.class)
                                                     .map(OutgoingRabbitMQMetadata::getRoutingKey)
                                                     .orElseThrow());
-            assertEquals(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP,
+            assertEquals(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP, USER_AGENT, VERSION,
                                                 new PlayerSessionState.State.Existing(Duration.ofMinutes(5))),
                          activeMessage.getPayload());
         }
