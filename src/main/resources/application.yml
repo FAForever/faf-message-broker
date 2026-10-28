@@ -45,7 +45,7 @@ mp:
           durable: true
           name: lobby-message-outbound
         queue:
-          durable: true
+          durable: false
           auto-delete: true
           exclusive: true
           name: broker.message.outbound.${faf.instance-id}
@@ -55,7 +55,7 @@ mp:
           durable: true
           name: lobby-schema-register
         queue:
-          durable: true
+          durable: false
           auto-delete: true
           exclusive: true
           name: broker.schema.registration.${faf.instance-id}
@@ -65,7 +65,7 @@ mp:
           durable: true
           name: lobby-session-request
         queue:
-          durable: true
+          durable: false
           auto-delete: true
           exclusive: true
           name: broker.session.request.${faf.instance-id}
