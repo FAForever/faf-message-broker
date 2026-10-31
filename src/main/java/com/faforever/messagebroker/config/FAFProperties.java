@@ -22,7 +22,7 @@ public interface FAFProperties {
 
     /// How long consumers of the player session status message should consider it valid
     default Duration playerSessionStatusExpiry() {
-        return playerSessionStatusRefreshPeriod().multipliedBy(2);
+        return playerSessionStatusRefreshPeriod().multipliedBy(5);
     }
 
     /// Header used to get the real ip of connecting clients from the websocket connection

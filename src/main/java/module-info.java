@@ -26,7 +26,6 @@ module com.faforever.messagebroker {
     requires org.hibernate.orm.core;
     requires org.jspecify;
     requires org.slf4j;
-    requires quarkus.hibernate.orm.panache;
     requires quarkus.scheduler.api;
     requires quarkus.websockets.next;
     requires smallrye.jwt;
@@ -35,7 +34,8 @@ module com.faforever.messagebroker {
     requires tools.jackson.core;
     requires tools.jackson.databind;
     requires org.jboss.logging;
+    requires quarkus.virtual.threads;
+    requires jakarta.data;
 
     requires static lombok;
-    requires quarkus.virtual.threads;
 }

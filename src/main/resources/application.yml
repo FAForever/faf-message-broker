@@ -30,6 +30,7 @@ quarkus:
 faf:
   use-policy-server: ${USE_POLICY_SERVER:false}
   instance-id: ${HOSTNAME:local}
+  ping-interval: ${PING_INTERVAL:1m}
   player-session-status-refresh-period: ${STATUS_REFRESH_PERIOD:1m}
   real-ip-header: ${REAL_IP_HEADER:X-Real-IP}
   publish-unknown-messages: ${PUBLISH_UNKNOWN_MESSAGES:false}
@@ -117,8 +118,6 @@ rabbitmq-virtual-host: ${RABBITMQ_VHOST:/faf-core}
   faf:
     publish-unknown-messages: true
   quarkus:
-    management:
-      enabled: false
     live-reload:
       instrumentation: true
     log:

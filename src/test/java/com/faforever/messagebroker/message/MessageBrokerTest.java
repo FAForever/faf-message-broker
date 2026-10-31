@@ -1,6 +1,8 @@
 package com.faforever.messagebroker.message;
 
+import com.faforever.messagebroker.domain.LobbyCommandSchema;
 import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
+import com.faforever.messagebroker.message.client.ConnectionMessage;
 import com.faforever.messagebroker.session.UserAgent;
 import com.faforever.messagebroker.session.SessionHandler;
 import com.faforever.messagebroker.message.client.FailedMessage;
@@ -65,6 +67,7 @@ class MessageBrokerTest {
                                                 }
                                                 """;
     private static final ObjectNode TEST_SCHEMA = (ObjectNode) new JsonMapper().readTree(SCHEMA_STRING);
+    private static final String ROUTE = "route";
 
     @Inject
     MessageBroker messageBroker;
@@ -96,13 +99,13 @@ class MessageBrokerTest {
 
             verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP,
                                                                         new PlayerSessionState.State.New(
-                                                                                Duration.ofMinutes(2))));
+                                                                                Duration.ofMinutes(5))));
 
             messageBroker.sendPlayerSessionUpdates();
 
             verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP,
                                                                         new PlayerSessionState.State.Existing(
-                                                                                Duration.ofMinutes(2))));
+                                                                                Duration.ofMinutes(5))));
 
             messageBroker.unregisterSession(PLAYER_ID, sessionHandler);
 
@@ -133,7 +136,7 @@ class MessageBrokerTest {
                                                     .map(OutgoingRabbitMQMetadata::getRoutingKey)
                                                     .orElseThrow());
             assertEquals(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP,
-                                                new PlayerSessionState.State.Existing(Duration.ofMinutes(2))),
+                                                new PlayerSessionState.State.Existing(Duration.ofMinutes(5))),
                          activeMessage.getPayload());
         }
 
@@ -181,8 +184,8 @@ class MessageBrokerTest {
         @Test
         void testInvalidLobbyMessage() {
             when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
-                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA,
-                                                   "route")));
+                    List.of(new LobbyCommandSchema(new LobbyCommandSchema.Id(COMMAND, LobbyCommandSchema.Direction.INBOUND), TEST_SCHEMA,
+                                                   ROUTE)));
 
             messageBroker.loadSchemas();
 
@@ -200,8 +203,8 @@ class MessageBrokerTest {
         @TestConfigProperty(key = "faf.publish-unknown-messages", value = "true")
         void testInvalidLobbyMessageUnknownAllowed() {
             when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
-                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA,
-                                                   "route")));
+                    List.of(new LobbyCommandSchema(new LobbyCommandSchema.Id(COMMAND, LobbyCommandSchema.Direction.INBOUND), TEST_SCHEMA,
+                                                   ROUTE)));
 
             messageBroker.loadSchemas();
 
@@ -218,8 +221,8 @@ class MessageBrokerTest {
         @Test
         void testValidLobbyMessage() {
             when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
-                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA,
-                                                   "route")));
+                    List.of(new LobbyCommandSchema(new LobbyCommandSchema.Id(COMMAND, LobbyCommandSchema.Direction.INBOUND), TEST_SCHEMA,
+                                                   ROUTE)));
 
             messageBroker.loadSchemas();
 
@@ -290,12 +293,19 @@ class MessageBrokerTest {
 
         @Test
         void testSchemaRegistration() {
-            LobbySchemaDetails lobbySchemaDetails = new LobbySchemaDetails(COMMAND,
-                                                                           LobbySchemaDetails.Direction.INBOUND,
-                                                                           TEST_SCHEMA, "route");
-            messageBroker.handleLobbySchemaRegistration(lobbySchemaDetails);
+            messageBroker.handleLobbySchemaRegistration(new LobbySchemaDetails(COMMAND,
+                                                                               LobbySchemaDetails.Direction.INBOUND,
+                                                                               TEST_SCHEMA, ROUTE));
 
-            verify(lobbyCommandSchemaRepository).save(lobbySchemaDetails);
+            ArgumentCaptor<LobbyCommandSchema> captor = captor();
+
+            verify(lobbyCommandSchemaRepository).save(captor.capture());
+
+            LobbyCommandSchema saved = captor.getValue();
+
+            assertEquals(new LobbyCommandSchema.Id(COMMAND, LobbyCommandSchema.Direction.INBOUND), saved.getId());
+            assertEquals(ROUTE, saved.getRoute());
+            assertEquals(TEST_SCHEMA, saved.getSchema());
 
             InboundPassthroughMessage message = createInboundMessage(Map.of("command", new StringNode(COMMAND)));
             messageBroker.handleInboundMessage(message);
@@ -418,30 +428,6 @@ class MessageBrokerTest {
         }
 
         @Test
-        void testKickMessage() {
-            OutboundPassthroughMessage message = createOutboundMessage(OutboundTarget.player(PLAYER_ID),
-                                                                       Map.of("command", new StringNode("notice"),
-                                                                              "style", new StringNode("kick")));
-
-            messageBroker.handleOutboundMessage(message);
-
-            ArgumentCaptor<PassthroughMessage> messageCaptor = captor();
-            verify(sessionHandler1).send(messageCaptor.capture());
-
-            PassthroughMessage sentMessage1 = messageCaptor.getValue();
-            assertEquals(message.message(), sentMessage1);
-
-            verify(sessionHandler1).close();
-
-            verify(sessionHandler2).send(messageCaptor.capture());
-
-            PassthroughMessage sentMessage2 = messageCaptor.getValue();
-            assertEquals(message.message(), sentMessage2);
-
-            verify(sessionHandler2).close();
-        }
-
-        @Test
         void testUnregisterSession() {
             messageBroker.unregisterSession(PLAYER_ID, sessionHandler1);
 
@@ -460,6 +446,13 @@ class MessageBrokerTest {
             when(sessionHandler2.sessionId()).thenReturn(SESSION_ID_1);
 
             assertThrows(IllegalStateException.class, () -> messageBroker.registerSession(PLAYER_ID, sessionHandler2));
+        }
+
+        @Test
+        void testPing() {
+            messageBroker.sendPing();
+            verify(sessionHandler1).send(any(ConnectionMessage.Ping.class));
+            verify(sessionHandler2).send(any(ConnectionMessage.Ping.class));
         }
 
         private OutboundPassthroughMessage createOutboundMessage(OutboundTarget target,
