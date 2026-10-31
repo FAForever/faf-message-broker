@@ -30,6 +30,9 @@ import org.slf4j.spi.LoggingEventBuilder;
 import java.util.SplittableRandom;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
 @Dependent
@@ -53,6 +56,8 @@ public class SessionHandler {
 
     private UserAgent userAgent = NO_USERAGENT;
     private final long sessionId = new SplittableRandom().nextLong(Long.MAX_VALUE);
+    private final CountDownLatch authenticatedLatch = new CountDownLatch(1);
+    private final Lock drainThreadLock = new ReentrantLock(true);
 
     private @Nullable String remoteIp;
     private volatile @Nullable Integer playerId;
@@ -80,12 +85,19 @@ public class SessionHandler {
         if (outgoingDrainThread != null) {
             throw new IllegalStateException("Attempting to start a connection that has already been started");
         }
-        if (closed) {
-            throw new IllegalStateException("Attempting to start a connection that has already been closed");
+        drainThreadLock.lock();
+        try {
+            if (closed) {
+                throw new IllegalStateException("Attempting to start a connection that has already been closed");
+            }
+            outgoingDrainThread = Thread.ofVirtual()
+                                        .name("session-outgoing-" + sessionId)
+                                        .start(() -> drainOutgoingTo(connection));
+            remoteIp = connection.remoteIp();
+            LOG.info("Session established");
+        } finally {
+            drainThreadLock.unlock();
         }
-        outgoingDrainThread = Thread.ofVirtual().name("session-outgoing-" + sessionId).start(() -> drainOutgoingTo(connection));
-        remoteIp = connection.remoteIp();
-        LOG.info("Session established");
     }
 
     private void setUserAgent(UserAgent userAgent) {
@@ -105,10 +117,11 @@ public class SessionHandler {
     @MDCPopulated
     public void close() {
         if (closed) {
-            LOG.info("Session closing");
-        } else {
-            LOG.info("Ensuring session closed");
+            LOG.info("Session already closed");
+            return;
         }
+
+        LOG.info("Closing session");
 
         Integer playerId = this.playerId;
         if (playerId != null) {
@@ -116,16 +129,20 @@ public class SessionHandler {
             this.playerId = null;
         }
 
-        boolean wasClosed = closed;
-        closed = true;
-        Thread outgoingDrainThread = this.outgoingDrainThread;
-        if (!wasClosed && outgoingDrainThread != null) {
-            outgoingDrainThread.interrupt();
-        }
+        drainThreadLock.lock();
+        try {
+            closed = true;
+            Thread outgoingDrainThread = this.outgoingDrainThread;
+            if (outgoingDrainThread != null) {
+                outgoingDrainThread.interrupt();
+            }
 
-        Thread incomingDrainThread = this.incomingDrainThread;
-        if (!wasClosed && incomingDrainThread != null) {
-            incomingDrainThread.interrupt();
+            Thread incomingDrainThread = this.incomingDrainThread;
+            if (incomingDrainThread != null) {
+                incomingDrainThread.interrupt();
+            }
+        } finally {
+            drainThreadLock.unlock();
         }
     }
 
@@ -200,7 +217,17 @@ public class SessionHandler {
                 }
                 messageBroker.registerSession(playerId, this);
                 this.playerId = playerId;
-                incomingDrainThread = Thread.ofVirtual().name("session-incoming-" + sessionId).start(() -> drainIncomingAs(playerId));
+
+                drainThreadLock.lock();
+                try {
+                    if (!closed) {
+                        incomingDrainThread = Thread.ofVirtual()
+                                                    .name("session-incoming-" + sessionId)
+                                                    .start(() -> drainIncomingAs(playerId));
+                    }
+                } finally {
+                    drainThreadLock.unlock();
+                }
             }
         }
     }
@@ -208,6 +235,7 @@ public class SessionHandler {
     private void drainIncomingAs(int playerId) {
         try {
             try {
+                authenticatedLatch.await();
                 while (!(Thread.interrupted() || closed)) {
                     PassthroughMessage message = incomingQueue.take();
                     inboundSendTimer.record(() -> messageBroker.handleInboundMessage(
