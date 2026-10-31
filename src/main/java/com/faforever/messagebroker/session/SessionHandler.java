@@ -131,32 +131,30 @@ public class SessionHandler {
 
     @MDCPopulated
     public void close() {
-        if (closed) {
-            LOG.info("session already closed");
-            return;
-        }
         LOG.debug("Closing session");
 
-        closeLock.lock();
-        Thread incomingDrainThread = this.incomingDrainThread;
-        Thread outgoingDrainThread = this.outgoingDrainThread;
-        try {
-            Integer playerId = this.playerId;
-            if (playerId != null) {
-                messageBroker.unregisterSession(playerId, this);
-                this.playerId = null;
-            }
+        if (!closed) {
+            closeLock.lock();
+            Thread incomingDrainThread = this.incomingDrainThread;
+            Thread outgoingDrainThread = this.outgoingDrainThread;
+            try {
+                Integer playerId = this.playerId;
+                if (playerId != null) {
+                    messageBroker.unregisterSession(playerId, this);
+                    this.playerId = null;
+                }
 
-            closed = true;
-            if (incomingDrainThread != null) {
-                incomingDrainThread.interrupt();
-            }
+                closed = true;
+                if (incomingDrainThread != null) {
+                    incomingDrainThread.interrupt();
+                }
 
-            if (outgoingDrainThread != null) {
-                outgoingDrainThread.interrupt();
+                if (outgoingDrainThread != null) {
+                    outgoingDrainThread.interrupt();
+                }
+            } finally {
+                closeLock.unlock();
             }
-        } finally {
-            closeLock.unlock();
         }
 
         try {
