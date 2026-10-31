@@ -131,6 +131,10 @@ public class SessionHandler {
 
     @MDCPopulated
     public void close() {
+        if (closed) {
+            LOG.info("session already closed");
+            return;
+        }
         LOG.debug("Closing session");
 
         closeLock.lock();
