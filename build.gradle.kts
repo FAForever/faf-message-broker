@@ -30,7 +30,8 @@ dependencies {
     implementation("io.quarkus:quarkus-websockets-next")
     implementation("io.quarkus:quarkus-config-yaml")
     implementation("io.quarkus:quarkus-jackson")
-    implementation("io.quarkus:quarkus-hibernate-orm-panache")
+    implementation("io.quarkus:quarkus-hibernate-orm")
+    implementation("io.quarkus:quarkus-data-processor")
     implementation("io.quarkus:quarkus-arc")
     implementation("io.quarkus:quarkus-smallrye-jwt")
     implementation("io.quarkus:quarkus-smallrye-jwt-build")
@@ -43,6 +44,9 @@ dependencies {
     implementation("io.quarkus:quarkus-scheduler")
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
     implementation("org.flywaydb:flyway-database-postgresql")
+
+    implementation("jakarta.data:jakarta.data-api")
+    annotationProcessor("io.quarkus:quarkus-data-processor:${property("quarkusPlatformVersion")}")
 
     implementation("com.networknt:json-schema-validator:3.0.8")
 

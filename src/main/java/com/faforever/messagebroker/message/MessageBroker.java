@@ -1,9 +1,8 @@
 package com.faforever.messagebroker.message;
 
 import com.faforever.messagebroker.config.FAFProperties;
+import com.faforever.messagebroker.domain.LobbyCommandSchema;
 import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
-import com.faforever.messagebroker.session.SessionHandler;
-import com.faforever.messagebroker.session.UserAgent;
 import com.faforever.messagebroker.interceptor.cdi.MDCPopulated;
 import com.faforever.messagebroker.message.client.FailedMessage;
 import com.faforever.messagebroker.message.client.PassthroughMessage;
@@ -14,6 +13,8 @@ import com.faforever.messagebroker.message.service.OutboundPassthroughMessage;
 import com.faforever.messagebroker.message.service.OutboundTarget;
 import com.faforever.messagebroker.message.service.PlayerSessionState;
 import com.faforever.messagebroker.micrometer.ProtocolMessageCommandResolver;
+import com.faforever.messagebroker.session.SessionHandler;
+import com.faforever.messagebroker.session.UserAgent;
 import com.github.victools.jsonschema.generator.SchemaKeyword;
 import com.github.victools.jsonschema.generator.SchemaVersion;
 import com.networknt.schema.Error;
@@ -102,15 +103,39 @@ public class MessageBroker {
 
     @PostConstruct
     void loadSchemas() {
-        lobbyCommandSchemaRepository.loadAll().forEach(this::registerSchema);
+        lobbyCommandSchemaRepository.loadAll().stream().map(lobbyCommandSchema -> {
+            LobbySchemaDetails.Direction direction = switch (lobbyCommandSchema.getId().direction()) {
+                case OUTBOUND -> LobbySchemaDetails.Direction.OUTBOUND;
+                case INBOUND -> LobbySchemaDetails.Direction.INBOUND;
+            };
+            String command = lobbyCommandSchema.getId().command();
+            ObjectNode schema = lobbyCommandSchema.getSchema();
+            return new LobbySchemaDetails(command, direction, schema, lobbyCommandSchema.getRoute());
+        }).forEach(this::registerSchema);
         schemaRequestEmitter.send(Message.of(Map.of()));
     }
 
     @Incoming("lobby-schema-registration")
     @Counted("faf.schema.registrations")
     void handleLobbySchemaRegistration(LobbySchemaDetails lobbySchemaDetails) {
-        lobbyCommandSchemaRepository.save(lobbySchemaDetails);
+        saveSchemaDetails(lobbySchemaDetails);
         registerSchema(lobbySchemaDetails);
+    }
+
+    private void saveSchemaDetails(LobbySchemaDetails lobbySchemaDetails) {
+        ObjectNode jsonSchema = lobbySchemaDetails.schema();
+        String command = lobbySchemaDetails.command();
+
+        LobbyCommandSchema.Direction direction = switch (lobbySchemaDetails.direction()) {
+            case INBOUND -> LobbyCommandSchema.Direction.INBOUND;
+            case OUTBOUND -> LobbyCommandSchema.Direction.OUTBOUND;
+        };
+        LobbyCommandSchema.Id id = new LobbyCommandSchema.Id(command, direction);
+
+
+        LobbyCommandSchema lobbyCommandSchema = new LobbyCommandSchema(id, jsonSchema, lobbySchemaDetails.route());
+
+        lobbyCommandSchemaRepository.save(lobbyCommandSchema);
     }
 
     private void registerSchema(LobbySchemaDetails lobbySchemaDetails) {

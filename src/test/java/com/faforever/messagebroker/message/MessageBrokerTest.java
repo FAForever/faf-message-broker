@@ -1,5 +1,6 @@
 package com.faforever.messagebroker.message;
 
+import com.faforever.messagebroker.domain.LobbyCommandSchema;
 import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
 import com.faforever.messagebroker.session.UserAgent;
 import com.faforever.messagebroker.session.SessionHandler;
@@ -65,6 +66,7 @@ class MessageBrokerTest {
                                                 }
                                                 """;
     private static final ObjectNode TEST_SCHEMA = (ObjectNode) new JsonMapper().readTree(SCHEMA_STRING);
+    private static final String ROUTE = "route";
 
     @Inject
     MessageBroker messageBroker;
@@ -181,8 +183,8 @@ class MessageBrokerTest {
         @Test
         void testInvalidLobbyMessage() {
             when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
-                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA,
-                                                   "route")));
+                    List.of(new LobbyCommandSchema(new LobbyCommandSchema.Id(COMMAND, LobbyCommandSchema.Direction.INBOUND), TEST_SCHEMA,
+                                                   ROUTE)));
 
             messageBroker.loadSchemas();
 
@@ -200,8 +202,8 @@ class MessageBrokerTest {
         @TestConfigProperty(key = "faf.publish-unknown-messages", value = "true")
         void testInvalidLobbyMessageUnknownAllowed() {
             when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
-                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA,
-                                                   "route")));
+                    List.of(new LobbyCommandSchema(new LobbyCommandSchema.Id(COMMAND, LobbyCommandSchema.Direction.INBOUND), TEST_SCHEMA,
+                                                   ROUTE)));
 
             messageBroker.loadSchemas();
 
@@ -218,8 +220,8 @@ class MessageBrokerTest {
         @Test
         void testValidLobbyMessage() {
             when(lobbyCommandSchemaRepository.loadAll()).thenReturn(
-                    List.of(new LobbySchemaDetails(COMMAND, LobbySchemaDetails.Direction.INBOUND, TEST_SCHEMA,
-                                                   "route")));
+                    List.of(new LobbyCommandSchema(new LobbyCommandSchema.Id(COMMAND, LobbyCommandSchema.Direction.INBOUND), TEST_SCHEMA,
+                                                   ROUTE)));
 
             messageBroker.loadSchemas();
 
@@ -290,12 +292,19 @@ class MessageBrokerTest {
 
         @Test
         void testSchemaRegistration() {
-            LobbySchemaDetails lobbySchemaDetails = new LobbySchemaDetails(COMMAND,
-                                                                           LobbySchemaDetails.Direction.INBOUND,
-                                                                           TEST_SCHEMA, "route");
-            messageBroker.handleLobbySchemaRegistration(lobbySchemaDetails);
+            messageBroker.handleLobbySchemaRegistration(new LobbySchemaDetails(COMMAND,
+                                                                               LobbySchemaDetails.Direction.INBOUND,
+                                                                               TEST_SCHEMA, ROUTE));
 
-            verify(lobbyCommandSchemaRepository).save(lobbySchemaDetails);
+            ArgumentCaptor<LobbyCommandSchema> captor = captor();
+
+            verify(lobbyCommandSchemaRepository).save(captor.capture());
+
+            LobbyCommandSchema saved = captor.getValue();
+
+            assertEquals(new LobbyCommandSchema.Id(COMMAND, LobbyCommandSchema.Direction.INBOUND), saved.getId());
+            assertEquals(ROUTE, saved.getRoute());
+            assertEquals(TEST_SCHEMA, saved.getSchema());
 
             InboundPassthroughMessage message = createInboundMessage(Map.of("command", new StringNode(COMMAND)));
             messageBroker.handleInboundMessage(message);

@@ -21,10 +21,10 @@ import tools.jackson.databind.node.ObjectNode;
 @Entity
 @Table(name = "lobby_command_schema")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@AllArgsConstructor(access = AccessLevel.PACKAGE)
+@AllArgsConstructor
 @Getter
 @Setter
-class LobbyCommandSchema {
+public class LobbyCommandSchema {
 
     @EmbeddedId
     private Id id;
@@ -37,7 +37,7 @@ class LobbyCommandSchema {
     private String route;
 
     @Embeddable
-    record Id(
+    public record Id(
             @Column(name = "command")
             String command,
             @Column(name = "direction")
@@ -47,7 +47,7 @@ class LobbyCommandSchema {
 
     @RequiredArgsConstructor
     @Getter
-    enum Direction {
+    public enum Direction {
         INBOUND("inbound"), OUTBOUND("outbound");
 
         @EnumeratedValue

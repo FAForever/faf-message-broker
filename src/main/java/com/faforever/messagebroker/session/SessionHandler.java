@@ -116,14 +116,15 @@ public class SessionHandler {
             this.playerId = null;
         }
 
+        boolean wasClosed = closed;
         closed = true;
         Thread outgoingDrainThread = this.outgoingDrainThread;
-        if (outgoingDrainThread != null) {
+        if (!wasClosed && outgoingDrainThread != null) {
             outgoingDrainThread.interrupt();
         }
 
         Thread incomingDrainThread = this.incomingDrainThread;
-        if (incomingDrainThread != null) {
+        if (!wasClosed && incomingDrainThread != null) {
             incomingDrainThread.interrupt();
         }
     }
