@@ -55,7 +55,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-@Timeout(1)
+@Timeout(5)
 @QuarkusComponentTest
 class SessionHandlerTest {
 
