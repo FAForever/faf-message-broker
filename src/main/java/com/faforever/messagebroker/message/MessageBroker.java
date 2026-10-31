@@ -276,7 +276,7 @@ public class MessageBroker {
     }
 
     private void sendMessageToAll(ProtocolMessage.Outgoing message) {
-        sessionHandlerMap.values().forEach(sessionHandler -> sendMessageAndCloseIfNecessary(sessionHandler, message));
+        sessionHandlerMap.values().forEach(sessionHandler -> sessionHandler.send(message));
     }
 
     private void sendMessageToPlayer(int playerId, ProtocolMessage.Outgoing message) {
@@ -286,7 +286,7 @@ public class MessageBroker {
             return;
         }
 
-        playerSessions.forEach(sessionHandler -> sendMessageAndCloseIfNecessary(sessionHandler, message));
+        playerSessions.forEach(sessionHandler -> sessionHandler.send(message));
     }
 
     private void sendMessageToSession(long sessionId, ProtocolMessage.Outgoing message) {
@@ -296,17 +296,7 @@ public class MessageBroker {
             return;
         }
 
-        sendMessageAndCloseIfNecessary(sessionHandler, message);
-    }
-
-    private void sendMessageAndCloseIfNecessary(SessionHandler sessionHandler, ProtocolMessage.Outgoing message) {
         sessionHandler.send(message);
-        if (message instanceof PassthroughMessage.Lobby(_, String command, ObjectNode payload) &&
-            "notice".equals(command) &&
-            payload.findValue("style") instanceof StringNode value &&
-            value.stringValue().equalsIgnoreCase("kick")) {
-            sessionHandler.close();
-        }
     }
 
     public void registerSession(int playerId, SessionHandler sessionHandler) {

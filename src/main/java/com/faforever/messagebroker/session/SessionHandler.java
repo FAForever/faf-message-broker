@@ -25,12 +25,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jspecify.annotations.Nullable;
-import org.slf4j.spi.LoggingEventBuilder;
+import org.slf4j.MDC;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.StringNode;
 
+import java.time.Duration;
 import java.util.SplittableRandom;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -56,26 +58,30 @@ public class SessionHandler {
 
     private UserAgent userAgent = NO_USERAGENT;
     private final long sessionId = new SplittableRandom().nextLong(Long.MAX_VALUE);
-    private final CountDownLatch authenticatedLatch = new CountDownLatch(1);
     private final Lock drainThreadLock = new ReentrantLock(true);
 
+    private @Nullable Integer playerId;
     private @Nullable String remoteIp;
-    private volatile @Nullable Integer playerId;
-    private volatile @Nullable Thread outgoingDrainThread;
-    private volatile @Nullable Thread incomingDrainThread;
-    private volatile boolean closed;
+    private @Nullable Thread outgoingDrainThread;
+    private @Nullable Thread incomingDrainThread;
+    private boolean closed;
 
     public SessionHandler(MessageBroker messageBroker, FAFProperties fafProperties,
-                          @RestClient PolicyClient policyClient, JWTParser jwtParser,
-                          MeterRegistry meterRegistry) {
+                          @RestClient PolicyClient policyClient, JWTParser jwtParser, MeterRegistry meterRegistry) {
         this.messageBroker = messageBroker;
         this.policyClient = policyClient;
         this.jwtParser = jwtParser;
         this.usePolicyServer = fafProperties.usePolicyServer();
         this.incomingQueue = new ArrayBlockingQueue<>(fafProperties.maxMessageQueueSize(), true);
         this.outgoingQueue = new ArrayBlockingQueue<>(fafProperties.maxMessageQueueSize(), true);
-        this.outboundSendTimer = Timer.builder("faf.send").tag("direction", "outbound").publishPercentileHistogram().register(meterRegistry);
-        this.inboundSendTimer = Timer.builder("faf.send").tag("direction", "inbound").publishPercentileHistogram().register(meterRegistry);
+        this.outboundSendTimer = Timer.builder("faf.send")
+                                      .tag("direction", "outbound")
+                                      .publishPercentileHistogram()
+                                      .register(meterRegistry);
+        this.inboundSendTimer = Timer.builder("faf.send")
+                                     .tag("direction", "inbound")
+                                     .publishPercentileHistogram()
+                                     .register(meterRegistry);
         this.outboundDroppedMessageCounter = meterRegistry.counter("faf.messages.dropped", "direction", "outbound");
         this.inboundDroppedMessageCounter = meterRegistry.counter("faf.messages.dropped", "direction", "inbound");
     }
@@ -116,34 +122,47 @@ public class SessionHandler {
 
     @MDCPopulated
     public void close() {
-        if (closed) {
-            LOG.info("Session already closed");
-            return;
-        }
-
-        LOG.info("Closing session");
-
-        Integer playerId = this.playerId;
-        if (playerId != null) {
-            messageBroker.unregisterSession(playerId, this);
-            this.playerId = null;
-        }
+        LOG.debug("Closing session");
 
         drainThreadLock.lock();
+        Thread incomingDrainThread = this.incomingDrainThread;
+        Thread outgoingDrainThread = this.outgoingDrainThread;
         try {
-            closed = true;
-            Thread outgoingDrainThread = this.outgoingDrainThread;
-            if (outgoingDrainThread != null) {
-                outgoingDrainThread.interrupt();
+            Integer playerId = this.playerId;
+            if (playerId != null) {
+                messageBroker.unregisterSession(playerId, this);
+                this.playerId = null;
             }
 
-            Thread incomingDrainThread = this.incomingDrainThread;
+            closed = true;
             if (incomingDrainThread != null) {
                 incomingDrainThread.interrupt();
+            }
+
+            if (outgoingDrainThread != null) {
+                outgoingDrainThread.interrupt();
             }
         } finally {
             drainThreadLock.unlock();
         }
+
+        try {
+            if (incomingDrainThread != null) {
+                if (incomingDrainThread.join(Duration.ofMinutes(1))) {
+                    this.incomingDrainThread = null;
+                }
+            }
+
+            if (outgoingDrainThread != null) {
+                if (outgoingDrainThread.join(Duration.ofMinutes(1))) {
+                    this.outgoingDrainThread = null;
+                }
+            }
+        } catch (InterruptedException exception) {
+            LOG.warn("Interrupted while waiting for drain threads to finish");
+        }
+
+        LOG.info("Session closed");
     }
 
     public void send(ProtocolMessage.Outgoing message) {
@@ -154,6 +173,12 @@ public class SessionHandler {
         if (!outgoingQueue.offer(message)) {
             LOG.warn("Unable to queue outbound message to due to full capacity");
             outboundDroppedMessageCounter.increment();
+        }
+        if (message instanceof PassthroughMessage.Lobby(_, String command, ObjectNode payload) &&
+            "notice".equals(command) &&
+            payload.findValue("style") instanceof StringNode value &&
+            value.stringValue().equalsIgnoreCase("kick")) {
+            Thread.startVirtualThread(this::close);
         }
     }
 
@@ -215,12 +240,12 @@ public class SessionHandler {
                 if (usePolicyServer) {
                     policyClient.sendVerificationDetails(new PolicyContents(sessionId, playerId, uniqueId));
                 }
-                messageBroker.registerSession(playerId, this);
-                this.playerId = playerId;
 
                 drainThreadLock.lock();
                 try {
-                    if (!closed) {
+                    if (!closed && this.playerId == null) {
+                        messageBroker.registerSession(playerId, this);
+                        this.playerId = playerId;
                         incomingDrainThread = Thread.ofVirtual()
                                                     .name("session-incoming-" + sessionId)
                                                     .start(() -> drainIncomingAs(playerId));
@@ -233,10 +258,11 @@ public class SessionHandler {
     }
 
     private void drainIncomingAs(int playerId) {
+        MDC.put(MDCInterceptor.SESSION_ID, String.valueOf(sessionId));
+        MDC.put(MDCInterceptor.PLAYER_ID, String.valueOf(playerId));
         try {
             try {
-                authenticatedLatch.await();
-                while (!(Thread.interrupted() || closed)) {
+                while (!Thread.interrupted()) {
                     PassthroughMessage message = incomingQueue.take();
                     inboundSendTimer.record(() -> messageBroker.handleInboundMessage(
                             new InboundPassthroughMessage(sessionId, playerId, message)));
@@ -250,24 +276,18 @@ public class SessionHandler {
                         new InboundPassthroughMessage(sessionId, playerId, messageToSend)));
             }
         } catch (RuntimeException exception) {
-            LOG.atWarn()
-               .setCause(exception)
-               .addKeyValue(MDCInterceptor.SESSION_ID, sessionId)
-               .addKeyValue(MDCInterceptor.PLAYER_ID, playerId)
-               .log("Unable to drain inbound queue some messages may not have been sent");
+            LOG.warn("Unable to drain inbound queue some messages may not have been sent", exception);
         } finally {
-            LOG.atInfo()
-               .addKeyValue(MDCInterceptor.SESSION_ID, sessionId)
-               .addKeyValue(MDCInterceptor.PLAYER_ID, playerId)
-               .log("Session incoming closed");
-            close();
+            LOG.info("Session incoming closed");
+            MDC.remove(MDCInterceptor.SESSION_ID);
+            MDC.remove(MDCInterceptor.PLAYER_ID);
         }
     }
 
     private void drainOutgoingTo(LobbyConnection connection) {
         try {
             try {
-                while (!(Thread.interrupted() || closed)) {
+                while (!Thread.interrupted()) {
                     ProtocolMessage.Outgoing message = outgoingQueue.take();
                     outboundSendTimer.record(() -> connection.send(message));
                 }
@@ -279,23 +299,14 @@ public class SessionHandler {
                 outboundSendTimer.record(() -> connection.send(messageToSend));
             }
         } catch (RuntimeException exception) {
-            LoggingEventBuilder loggingEventBuilder = LOG.atWarn()
-                                                         .setCause(exception)
-                                                         .setMessage(
-                                                                 "Unable to drain outbound queue some messages may not have been sent")
-                                                         .addKeyValue(MDCInterceptor.SESSION_ID, sessionId);
-            if (playerId != null) {
-                loggingEventBuilder = loggingEventBuilder.addKeyValue(MDCInterceptor.PLAYER_ID, playerId);
-            }
-            loggingEventBuilder.log();
+            MDC.put(MDCInterceptor.SESSION_ID, String.valueOf(sessionId));
+            LOG.warn("Unable to drain outbound queue some messages may not have been sent", exception);
+            MDC.remove(MDCInterceptor.SESSION_ID);
         } finally {
-            LoggingEventBuilder loggingEventBuilder = LOG.atInfo()
-                                                         .setMessage("Session outgoing closed")
-                                                         .addKeyValue(MDCInterceptor.SESSION_ID, sessionId);
-            if (playerId != null) {
-                loggingEventBuilder = loggingEventBuilder.addKeyValue(MDCInterceptor.PLAYER_ID, playerId);
-            }
-            loggingEventBuilder.log();
+            MDC.put(MDCInterceptor.SESSION_ID, String.valueOf(sessionId));
+            LOG.info("Session outgoing closed");
+            MDC.remove(MDCInterceptor.SESSION_ID);
+
             connection.close();
         }
     }

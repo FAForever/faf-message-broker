@@ -427,30 +427,6 @@ class MessageBrokerTest {
         }
 
         @Test
-        void testKickMessage() {
-            OutboundPassthroughMessage message = createOutboundMessage(OutboundTarget.player(PLAYER_ID),
-                                                                       Map.of("command", new StringNode("notice"),
-                                                                              "style", new StringNode("kick")));
-
-            messageBroker.handleOutboundMessage(message);
-
-            ArgumentCaptor<PassthroughMessage> messageCaptor = captor();
-            verify(sessionHandler1).send(messageCaptor.capture());
-
-            PassthroughMessage sentMessage1 = messageCaptor.getValue();
-            assertEquals(message.message(), sentMessage1);
-
-            verify(sessionHandler1).close();
-
-            verify(sessionHandler2).send(messageCaptor.capture());
-
-            PassthroughMessage sentMessage2 = messageCaptor.getValue();
-            assertEquals(message.message(), sentMessage2);
-
-            verify(sessionHandler2).close();
-        }
-
-        @Test
         void testUnregisterSession() {
             messageBroker.unregisterSession(PLAYER_ID, sessionHandler1);
 

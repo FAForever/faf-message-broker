@@ -23,9 +23,12 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.StringNode;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -52,7 +55,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-@Timeout(60)
+@Timeout(1)
 @QuarkusComponentTest
 class SessionHandlerTest {
 
@@ -239,6 +242,14 @@ class SessionHandlerTest {
     }
 
     @Test
+    void testKickMessageCloses() throws Exception {
+        sessionHandler.send(createPassthroughMessage(Map.of("command", new StringNode("notice"),
+                                                            "style", new StringNode("kick"))));
+
+        connection.waitUntilClosed();
+    }
+
+    @Test
     void testCloseBeforeAuth() throws Exception {
         sessionHandler.close();
 
@@ -294,7 +305,7 @@ class SessionHandlerTest {
         sessionHandler.send(message);
         sessionHandler.send(message);
 
-        sessionHandler.close();
+        Thread.startVirtualThread(sessionHandler::close);
 
         connection.resumeSends();
 
@@ -332,7 +343,7 @@ class SessionHandlerTest {
 
         verify(messageBroker, atMostOnce()).handleInboundMessage(new InboundPassthroughMessage(sessionHandler.sessionId(), playerId, message));
 
-        sessionHandler.close();
+        Thread.startVirtualThread(sessionHandler::close);
 
         acceptLatch.countDown();
         incomingLatch.await();
@@ -374,6 +385,8 @@ class SessionHandlerTest {
         sessionHandler.accept(inboundMessage);
 
         assertEquals(1, sessionHandler.numInboundQueuedMessages());
+
+        connection.resumeSends();
     }
 
     @Test
@@ -382,8 +395,12 @@ class SessionHandlerTest {
     }
 
     private PassthroughMessage createPassthroughMessage() {
+        return createPassthroughMessage(Map.of("command", new StringNode("test")));
+    }
+
+    private PassthroughMessage createPassthroughMessage(Map<String, ? extends JsonNode> properties) {
         ObjectNode node = JsonNodeFactory.instance.objectNode();
-        node.put("command", "test");
+        node.setAll(properties);
         return PassthroughMessage.of(node);
     }
 
