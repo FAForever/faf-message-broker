@@ -20,6 +20,10 @@ public interface FAFProperties {
     @WithDefault("1m")
     Duration playerSessionStatusRefreshPeriod();
 
+    /// How often ping is sent out to registered sessions
+    @WithDefault("1m")
+    Duration pingInterval();
+
     /// How long consumers of the player session status message should consider it valid
     default Duration playerSessionStatusExpiry() {
         return playerSessionStatusRefreshPeriod().multipliedBy(5);
