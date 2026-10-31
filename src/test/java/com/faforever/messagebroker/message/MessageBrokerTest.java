@@ -98,13 +98,13 @@ class MessageBrokerTest {
 
             verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP,
                                                                         new PlayerSessionState.State.New(
-                                                                                Duration.ofMinutes(2))));
+                                                                                Duration.ofMinutes(5))));
 
             messageBroker.sendPlayerSessionUpdates();
 
             verify(playerConnectionEmitter).send(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP,
                                                                         new PlayerSessionState.State.Existing(
-                                                                                Duration.ofMinutes(2))));
+                                                                                Duration.ofMinutes(5))));
 
             messageBroker.unregisterSession(PLAYER_ID, sessionHandler);
 
@@ -135,7 +135,7 @@ class MessageBrokerTest {
                                                     .map(OutgoingRabbitMQMetadata::getRoutingKey)
                                                     .orElseThrow());
             assertEquals(new PlayerSessionState(PLAYER_ID, SESSION_ID_1, REMOTE_IP,
-                                                new PlayerSessionState.State.Existing(Duration.ofMinutes(2))),
+                                                new PlayerSessionState.State.Existing(Duration.ofMinutes(5))),
                          activeMessage.getPayload());
         }
 
