@@ -20,6 +20,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -76,6 +77,12 @@ class SessionHandlerTest {
     @BeforeEach
     void setConnection() {
         sessionHandler.setConnection(connection);
+    }
+
+    @AfterEach
+    @Timeout(1)
+    void close() {
+        sessionHandler.close();
     }
 
     @Test
@@ -267,7 +274,6 @@ class SessionHandlerTest {
 
         sessionHandler.accept(new ConnectionMessage.AuthenticateRequest("", "", ""));
 
-
         sessionHandler.close();
 
         connection.waitUntilClosed();
@@ -362,8 +368,6 @@ class SessionHandlerTest {
 
         sessionHandler.close();
 
-        assertEquals(2, sessionHandler.numInboundQueuedMessages());
-
         verifyNoInteractions(messageBroker);
         connection.waitUntilClosed();
     }
@@ -383,6 +387,8 @@ class SessionHandlerTest {
         PassthroughMessage inboundMessage = createPassthroughMessage();
         sessionHandler.accept(inboundMessage);
         sessionHandler.accept(inboundMessage);
+        sessionHandler.accept(inboundMessage);
+
 
         assertEquals(1, sessionHandler.numInboundQueuedMessages());
 

@@ -32,8 +32,11 @@ import tools.jackson.databind.node.StringNode;
 
 import java.time.Duration;
 import java.util.SplittableRandom;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -49,8 +52,12 @@ public class SessionHandler {
     private final JWTParser jwtParser;
 
     private final boolean usePolicyServer;
-    private final BlockingQueue<PassthroughMessage> incomingQueue;
-    private final BlockingQueue<ProtocolMessage.Outgoing> outgoingQueue;
+
+    private final ThreadPoolExecutor outgoingExecutor;
+    private final ThreadPoolExecutor incomingExecutor;
+    private final Lock authenticationLock = new ReentrantLock(true);
+    private final Lock connectionLock = new ReentrantLock();
+    private final CountDownLatch authenticatedLatch = new CountDownLatch(1);
 
     private final Timer outboundSendTimer;
     private final Timer inboundSendTimer;
@@ -60,23 +67,15 @@ public class SessionHandler {
 
     private UserAgent userAgent = NO_USERAGENT;
     private final long sessionId = new SplittableRandom().nextLong(Long.MAX_VALUE);
-    private final Lock closeLock = new ReentrantLock(true);
 
+    private boolean registered;
+    private @Nullable LobbyConnection connection;
     private @Nullable Integer playerId;
     private @Nullable String remoteIp;
-    private @Nullable Thread outgoingDrainThread;
-    private @Nullable Thread incomingDrainThread;
     private LongTaskTimer.@Nullable Sample connectionSample;
-    private boolean closed;
 
     public SessionHandler(MessageBroker messageBroker, FAFProperties fafProperties,
                           @RestClient PolicyClient policyClient, JWTParser jwtParser, MeterRegistry meterRegistry) {
-        this.messageBroker = messageBroker;
-        this.policyClient = policyClient;
-        this.jwtParser = jwtParser;
-        this.usePolicyServer = fafProperties.usePolicyServer();
-        this.incomingQueue = new ArrayBlockingQueue<>(fafProperties.maxMessageQueueSize(), true);
-        this.outgoingQueue = new ArrayBlockingQueue<>(fafProperties.maxMessageQueueSize(), true);
         this.outboundSendTimer = Timer.builder("faf.send")
                                       .tag("direction", "outbound")
                                       .publishPercentileHistogram()
@@ -92,27 +91,72 @@ public class SessionHandler {
                                             .register(meterRegistry);
         this.outboundDroppedMessageCounter = meterRegistry.counter("faf.messages.dropped", "direction", "outbound");
         this.inboundDroppedMessageCounter = meterRegistry.counter("faf.messages.dropped", "direction", "inbound");
+        this.messageBroker = messageBroker;
+        this.policyClient = policyClient;
+        this.jwtParser = jwtParser;
+        this.usePolicyServer = fafProperties.usePolicyServer();
+        this.incomingExecutor = createMessageExecutor(fafProperties.maxMessageQueueSize(), Direction.INBOUND);
+        this.outgoingExecutor = createMessageExecutor(fafProperties.maxMessageQueueSize(), Direction.OUTBOUND);
+    }
+
+    private ThreadPoolExecutor createMessageExecutor(int queueSize, Direction direction) {
+        String type = switch (direction) {
+            case INBOUND -> "inbound";
+            case OUTBOUND -> "outbound";
+        };
+        Counter counter = switch (direction) {
+            case INBOUND -> inboundDroppedMessageCounter;
+            case OUTBOUND -> outboundDroppedMessageCounter;
+        };
+        ThreadFactory threadFactory = Thread.ofVirtual().name(sessionId + "-" + type + "-", 0).uncaughtExceptionHandler((_, _) -> {}).factory();
+        return new ThreadPoolExecutor(0, 1, 0, TimeUnit.SECONDS, new LinkedBlockingQueue<>(queueSize),
+                                      threadFactory, (_, executor) -> {
+            MDC.put(MDCInterceptor.SESSION_ID, String.valueOf(sessionId));
+            if (playerId != null) {
+                MDC.put(MDCInterceptor.PLAYER_ID, String.valueOf(playerId));
+            }
+            if (executor.isShutdown()) {
+                LOG.info("Dropping {} message queued after session closed", type);
+            } else {
+                LOG.warn("Unable to queue {} message due to full capacity", type);
+                counter.increment();
+            }
+            MDC.remove(MDCInterceptor.SESSION_ID);
+            MDC.remove(MDCInterceptor.PLAYER_ID);
+        }) {
+            @Override
+            protected void beforeExecute(Thread t, Runnable r) {
+                MDC.put(MDCInterceptor.SESSION_ID, String.valueOf(sessionId));
+                if (playerId != null) {
+                    MDC.put(MDCInterceptor.PLAYER_ID, String.valueOf(playerId));
+                }
+                super.beforeExecute(t, r);
+            }
+
+            @Override
+            protected void afterExecute(Runnable r, @Nullable Throwable t) {
+                super.afterExecute(r, t);
+                if (t != null) {
+                    LOG.warn("Unable to send {} message", type, t);
+                }
+                MDC.remove(MDCInterceptor.SESSION_ID);
+                MDC.remove(MDCInterceptor.PLAYER_ID);
+            }
+        };
     }
 
     @MDCPopulated
     public void setConnection(LobbyConnection connection) {
-        if (outgoingDrainThread != null) {
+        if (this.connection != null) {
             throw new IllegalStateException("Attempting to start a connection that has already been started");
         }
-        closeLock.lock();
-        try {
-            if (closed) {
-                throw new IllegalStateException("Attempting to start a connection that has already been closed");
-            }
-            connectionSample = connectionTimer.start();
-            outgoingDrainThread = Thread.ofVirtual()
-                                        .name("session-outgoing-" + sessionId)
-                                        .start(() -> drainOutgoingTo(connection));
-            remoteIp = connection.remoteIp();
-            LOG.info("Session established");
-        } finally {
-            closeLock.unlock();
+        if (outgoingExecutor.isShutdown()) {
+            throw new IllegalStateException("Attempting to set connection when closed");
         }
+        this.connection = connection;
+        remoteIp = connection.remoteIp();
+        connectionSample = connectionTimer.start();
+        LOG.info("Connection established");
     }
 
     private void setUserAgent(UserAgent userAgent) {
@@ -133,90 +177,101 @@ public class SessionHandler {
     public void close() {
         LOG.debug("Closing session");
 
-        if (!closed) {
-            closeLock.lock();
-            Thread incomingDrainThread = this.incomingDrainThread;
-            Thread outgoingDrainThread = this.outgoingDrainThread;
-            try {
-                Integer playerId = this.playerId;
-                if (playerId != null) {
-                    messageBroker.unregisterSession(playerId, this);
-                    this.playerId = null;
-                }
-
-                closed = true;
-                if (incomingDrainThread != null) {
-                    incomingDrainThread.interrupt();
-                }
-
-                if (outgoingDrainThread != null) {
-                    outgoingDrainThread.interrupt();
-                }
-            } finally {
-                closeLock.unlock();
+        authenticationLock.lock();
+        try {
+            if (playerId != null && registered) {
+                messageBroker.unregisterSession(playerId, this);
             }
+            incomingExecutor.shutdown();
+            outgoingExecutor.shutdown();
+        } finally {
+            authenticationLock.unlock();
         }
 
         try {
-            if (incomingDrainThread != null) {
-                if (incomingDrainThread.join(Duration.ofMinutes(1))) {
-                    this.incomingDrainThread = null;
-                }
+            if (authenticatedLatch.getCount() > 0 || !incomingExecutor.awaitTermination(1, TimeUnit.MINUTES)) {
+                incomingExecutor.shutdownNow();
             }
-
-            if (outgoingDrainThread != null) {
-                if (outgoingDrainThread.join(Duration.ofMinutes(1))) {
-                    this.outgoingDrainThread = null;
-                }
+            if (!outgoingExecutor.awaitTermination(1, TimeUnit.MINUTES)) {
+                outgoingExecutor.shutdownNow();
             }
-        } catch (InterruptedException exception) {
-            LOG.warn("Interrupted while waiting for drain threads to finish");
+        } catch (InterruptedException _) {
+            LOG.warn("Interrupted while waiting for queued messages to drain");
+            incomingExecutor.shutdownNow();
+            outgoingExecutor.shutdownNow();
         }
 
-        if (connectionSample != null) {
-            connectionSample.stop();
+        connectionLock.lock();
+        try {
+            LobbyConnection connection = this.connection;
+            if (connection != null) {
+                connection.close();
+                this.connection = null;
+            }
+            LongTaskTimer.Sample connectionSample = this.connectionSample;
+            if (connectionSample != null) {
+                connectionSample.stop();
+                this.connectionSample = null;
+            }
+        } finally {
+            connectionLock.unlock();
         }
         LOG.info("Session closed");
     }
 
     public void send(ProtocolMessage.Outgoing message) {
-        if (closed) {
-            LOG.warn("Attempted to queue outgoing message on connection that was closed");
-            return;
+        outgoingExecutor.execute(() -> {
+            LobbyConnection connection = this.connection;
+            if (connection == null) {
+                throw new IllegalStateException("No connection set for session");
+            }
+            outboundSendTimer.record(() -> connection.send(message));
+        });
+        if (isKick(message)) {
+            closeLater();
         }
-        if (!outgoingQueue.offer(message)) {
-            LOG.warn("Unable to queue outbound message to due to full capacity");
-            outboundDroppedMessageCounter.increment();
-        }
-        if (message instanceof PassthroughMessage.Lobby(_, String command, ObjectNode payload) &&
-            "notice".equals(command) &&
-            payload.findValue("style") instanceof StringNode value &&
-            value.stringValue().equalsIgnoreCase("kick")) {
-            Thread.startVirtualThread(this::close);
-        }
+    }
+
+    private void closeLater() {
+        Thread.ofVirtual().name("session-" + sessionId + "-close").start(this::close);
+    }
+
+    private boolean isKick(ProtocolMessage.Outgoing message) {
+        return message instanceof PassthroughMessage.Lobby(_, String command, ObjectNode payload) &&
+               "notice".equals(command) &&
+               payload.findValue("style") instanceof StringNode value &&
+               value.stringValue().equalsIgnoreCase("kick");
     }
 
     @MDCPopulated
     @Timed(value = "faf.messages.inbound", histogram = true)
     public void accept(@MeterTag(value = "command",
                                  resolver = ProtocolMessageCommandResolver.class) ProtocolMessage.Incoming message) {
-        if (closed) {
-            LOG.warn("Incoming message received on connection that was closed");
-            return;
-        }
-
         switch (message) {
             case ConnectionMessage.Incoming connectionMessage -> handleConnectionMessage(connectionMessage);
-            case PassthroughMessage passthrough -> {
-                if (!incomingQueue.offer(passthrough)) {
-                    LOG.warn("Unable to queue inbound message due to full capacity");
-                    inboundDroppedMessageCounter.increment();
+            case PassthroughMessage passthrough -> incomingExecutor.execute(() -> {
+                try {
+                    authenticatedLatch.await();
+                } catch (InterruptedException e) {
+                    LOG.info("Message sending interrupted before authentication");
+                    Thread.currentThread().interrupt();
+                    return;
                 }
-            }
+                Integer playerId = this.playerId;
+                if (playerId == null) {
+                    throw new IllegalStateException("No playerId set for session");
+                }
+                inboundSendTimer.record(() -> messageBroker.handleInboundMessage(
+                        new InboundPassthroughMessage(sessionId, playerId, passthrough)));
+            });
         }
     }
 
     private void handleConnectionMessage(ConnectionMessage.Incoming message) {
+        if (incomingExecutor.isShutdown()) {
+            LOG.warn("Incoming message received on connection that was closed");
+            return;
+        }
         switch (message) {
             case ConnectionMessage.Ping(String requestId) -> send(new ConnectionMessage.Pong(requestId));
             case ConnectionMessage.Pong _ -> {}
@@ -225,20 +280,13 @@ public class SessionHandler {
                 send(new ConnectionMessage.SessionResponse(requestId, sessionId));
             }
             case ConnectionMessage.AuthenticateRequest(String requestId, String token, String uniqueId) -> {
-                if (this.playerId != null) {
-                    LOG.warn("Player already set for session");
-                    send(new ConnectionMessage.LoginFailureResponse(requestId, "Connection previously authenticated"));
-                    close();
-                    return;
-                }
-
                 JsonWebToken jwt;
                 try {
                     jwt = jwtParser.parse(token);
                 } catch (ParseException e) {
                     LOG.warn("Unable to parse jwt", e);
                     send(new ConnectionMessage.LoginFailureResponse(requestId, "Invalid access token provided"));
-                    close();
+                    closeLater();
                     return;
                 }
 
@@ -246,84 +294,41 @@ public class SessionHandler {
                     LOG.warn("Token without lobby scope received");
                     send(new ConnectionMessage.LoginFailureResponse(requestId,
                                                                     "Token does not have permission to login to the lobby server"));
-                    close();
+                    closeLater();
                     return;
                 }
 
                 int playerId = Integer.parseInt(jwt.getSubject());
                 if (usePolicyServer) {
-                    policyClient.sendVerificationDetails(new PolicyContents(sessionId, playerId, uniqueId));
-                }
-
-                closeLock.lock();
-                try {
-                    if (!closed && this.playerId == null) {
-                        messageBroker.registerSession(playerId, this);
-                        this.playerId = playerId;
-                        incomingDrainThread = Thread.ofVirtual()
-                                                    .name("session-incoming-" + sessionId)
-                                                    .start(() -> drainIncomingAs(playerId));
+                    try {
+                        policyClient.sendVerificationDetails(new PolicyContents(sessionId, playerId, uniqueId));
+                    } catch (RuntimeException e) {
+                        LOG.warn("Unable to send policy server verification details", e);
                     }
+                }
+
+                authenticationLock.lock();
+                try {
+                    if (outgoingExecutor.isShutdown()) {
+                        return;
+                    }
+
+                    if (this.playerId != null) {
+                        LOG.warn("Player already set for session");
+                        send(new ConnectionMessage.LoginFailureResponse(requestId,
+                                                                        "Connection previously authenticated"));
+                        closeLater();
+                        return;
+                    }
+
+                    messageBroker.registerSession(playerId, this);
+                    this.playerId = playerId;
+                    registered = true;
+                    authenticatedLatch.countDown();
                 } finally {
-                    closeLock.unlock();
+                    authenticationLock.unlock();
                 }
             }
-        }
-    }
-
-    private void drainIncomingAs(int playerId) {
-        MDC.put(MDCInterceptor.SESSION_ID, String.valueOf(sessionId));
-        MDC.put(MDCInterceptor.PLAYER_ID, String.valueOf(playerId));
-        try {
-            try {
-                while (!Thread.interrupted()) {
-                    PassthroughMessage message = incomingQueue.take();
-                    inboundSendTimer.record(() -> messageBroker.handleInboundMessage(
-                            new InboundPassthroughMessage(sessionId, playerId, message)));
-                }
-            } catch (InterruptedException _) {}
-
-            PassthroughMessage message;
-            while ((message = incomingQueue.poll()) != null) {
-                PassthroughMessage messageToSend = message;
-                inboundSendTimer.record(() -> messageBroker.handleInboundMessage(
-                        new InboundPassthroughMessage(sessionId, playerId, messageToSend)));
-            }
-        } catch (RuntimeException exception) {
-            LOG.warn("Unable to drain inbound queue some messages may not have been sent", exception);
-        } finally {
-            LOG.info("Session incoming closed");
-            MDC.remove(MDCInterceptor.SESSION_ID);
-            MDC.remove(MDCInterceptor.PLAYER_ID);
-
-            close();
-        }
-    }
-
-    private void drainOutgoingTo(LobbyConnection connection) {
-        try {
-            try {
-                while (!Thread.interrupted()) {
-                    ProtocolMessage.Outgoing message = outgoingQueue.take();
-                    outboundSendTimer.record(() -> connection.send(message));
-                }
-            } catch (InterruptedException _) {}
-
-            ProtocolMessage.Outgoing message;
-            while ((message = outgoingQueue.poll()) != null) {
-                ProtocolMessage.Outgoing messageToSend = message;
-                outboundSendTimer.record(() -> connection.send(messageToSend));
-            }
-        } catch (RuntimeException exception) {
-            MDC.put(MDCInterceptor.SESSION_ID, String.valueOf(sessionId));
-            LOG.warn("Unable to drain outbound queue some messages may not have been sent", exception);
-            MDC.remove(MDCInterceptor.SESSION_ID);
-        } finally {
-            MDC.put(MDCInterceptor.SESSION_ID, String.valueOf(sessionId));
-            LOG.info("Session outgoing closed");
-            MDC.remove(MDCInterceptor.SESSION_ID);
-
-            connection.close();
         }
     }
 
@@ -344,10 +349,14 @@ public class SessionHandler {
     }
 
     public int numOutboundQueuedMessages() {
-        return outgoingQueue.size();
+        return outgoingExecutor.getQueue().size();
     }
 
     public int numInboundQueuedMessages() {
-        return incomingQueue.size();
+        return incomingExecutor.getQueue().size();
+    }
+
+    private enum Direction {
+        INBOUND, OUTBOUND
     }
 }
