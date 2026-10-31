@@ -15,6 +15,7 @@ import com.faforever.messagebroker.policy.PolicyContents;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.aop.MeterTag;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.LongTaskTimer;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.smallrye.jwt.auth.principal.JWTParser;
@@ -53,6 +54,7 @@ public class SessionHandler {
 
     private final Timer outboundSendTimer;
     private final Timer inboundSendTimer;
+    private final LongTaskTimer connectionTimer;
     private final Counter inboundDroppedMessageCounter;
     private final Counter outboundDroppedMessageCounter;
 
@@ -64,6 +66,7 @@ public class SessionHandler {
     private @Nullable String remoteIp;
     private @Nullable Thread outgoingDrainThread;
     private @Nullable Thread incomingDrainThread;
+    private LongTaskTimer.@Nullable Sample connectionSample;
     private boolean closed;
 
     public SessionHandler(MessageBroker messageBroker, FAFProperties fafProperties,
@@ -82,6 +85,11 @@ public class SessionHandler {
                                      .tag("direction", "inbound")
                                      .publishPercentileHistogram()
                                      .register(meterRegistry);
+        this.connectionTimer = LongTaskTimer.builder("faf.connections")
+                                            .minimumExpectedValue(Duration.ofMillis(100))
+                                            .maximumExpectedValue(Duration.ofHours(1))
+                                            .publishPercentileHistogram()
+                                            .register(meterRegistry);
         this.outboundDroppedMessageCounter = meterRegistry.counter("faf.messages.dropped", "direction", "outbound");
         this.inboundDroppedMessageCounter = meterRegistry.counter("faf.messages.dropped", "direction", "inbound");
     }
@@ -96,6 +104,7 @@ public class SessionHandler {
             if (closed) {
                 throw new IllegalStateException("Attempting to start a connection that has already been closed");
             }
+            connectionSample = connectionTimer.start();
             outgoingDrainThread = Thread.ofVirtual()
                                         .name("session-outgoing-" + sessionId)
                                         .start(() -> drainOutgoingTo(connection));
@@ -162,6 +171,9 @@ public class SessionHandler {
             LOG.warn("Interrupted while waiting for drain threads to finish");
         }
 
+        if (connectionSample != null) {
+            connectionSample.stop();
+        }
         LOG.info("Session closed");
     }
 

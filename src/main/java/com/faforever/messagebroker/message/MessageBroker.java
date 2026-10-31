@@ -4,6 +4,7 @@ import com.faforever.messagebroker.config.FAFProperties;
 import com.faforever.messagebroker.domain.LobbyCommandSchema;
 import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
 import com.faforever.messagebroker.interceptor.cdi.MDCPopulated;
+import com.faforever.messagebroker.message.client.ConnectionMessage;
 import com.faforever.messagebroker.message.client.FailedMessage;
 import com.faforever.messagebroker.message.client.PassthroughMessage;
 import com.faforever.messagebroker.message.client.ProtocolMessage;
@@ -49,6 +50,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -166,6 +168,14 @@ public class MessageBroker {
                                                                                              new PlayerSessionState.State.Existing(
                                                                                                      fafProperties.playerSessionStatusExpiry()))))
                         .forEach(playerConnectionEmitter::send);
+    }
+
+    @Timed(value = "faf.ping", histogram = true)
+    @Scheduled(every = "${faf.ping-interval}",
+               skipExecutionIf = Scheduled.ApplicationNotRunning.class,
+               concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    void sendPing() {
+        sendMessageToAll(new ConnectionMessage.Ping(UUID.randomUUID().toString()));
     }
 
     @Incoming("player-active-request")
