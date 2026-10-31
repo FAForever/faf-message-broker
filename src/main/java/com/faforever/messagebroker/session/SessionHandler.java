@@ -58,7 +58,7 @@ public class SessionHandler {
 
     private UserAgent userAgent = NO_USERAGENT;
     private final long sessionId = new SplittableRandom().nextLong(Long.MAX_VALUE);
-    private final Lock drainThreadLock = new ReentrantLock(true);
+    private final Lock closeLock = new ReentrantLock(true);
 
     private @Nullable Integer playerId;
     private @Nullable String remoteIp;
@@ -91,7 +91,7 @@ public class SessionHandler {
         if (outgoingDrainThread != null) {
             throw new IllegalStateException("Attempting to start a connection that has already been started");
         }
-        drainThreadLock.lock();
+        closeLock.lock();
         try {
             if (closed) {
                 throw new IllegalStateException("Attempting to start a connection that has already been closed");
@@ -102,7 +102,7 @@ public class SessionHandler {
             remoteIp = connection.remoteIp();
             LOG.info("Session established");
         } finally {
-            drainThreadLock.unlock();
+            closeLock.unlock();
         }
     }
 
@@ -124,7 +124,7 @@ public class SessionHandler {
     public void close() {
         LOG.debug("Closing session");
 
-        drainThreadLock.lock();
+        closeLock.lock();
         Thread incomingDrainThread = this.incomingDrainThread;
         Thread outgoingDrainThread = this.outgoingDrainThread;
         try {
@@ -143,7 +143,7 @@ public class SessionHandler {
                 outgoingDrainThread.interrupt();
             }
         } finally {
-            drainThreadLock.unlock();
+            closeLock.unlock();
         }
 
         try {
@@ -241,7 +241,7 @@ public class SessionHandler {
                     policyClient.sendVerificationDetails(new PolicyContents(sessionId, playerId, uniqueId));
                 }
 
-                drainThreadLock.lock();
+                closeLock.lock();
                 try {
                     if (!closed && this.playerId == null) {
                         messageBroker.registerSession(playerId, this);
@@ -251,7 +251,7 @@ public class SessionHandler {
                                                     .start(() -> drainIncomingAs(playerId));
                     }
                 } finally {
-                    drainThreadLock.unlock();
+                    closeLock.unlock();
                 }
             }
         }
