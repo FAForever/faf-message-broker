@@ -293,6 +293,8 @@ public class SessionHandler {
             LOG.info("Session incoming closed");
             MDC.remove(MDCInterceptor.SESSION_ID);
             MDC.remove(MDCInterceptor.PLAYER_ID);
+
+            close();
         }
     }
 
