@@ -181,6 +181,7 @@ public class SessionHandler {
         try {
             if (playerId != null && registered) {
                 messageBroker.unregisterSession(playerId, this);
+                registered = false;
             }
             incomingExecutor.shutdown();
             outgoingExecutor.shutdown();
