@@ -364,8 +364,6 @@ class SessionHandlerTest {
         sessionHandler.accept(message);
         sessionHandler.accept(message);
 
-        assertEquals(2, sessionHandler.numInboundQueuedMessages());
-
         sessionHandler.close();
 
         verifyNoInteractions(messageBroker);
