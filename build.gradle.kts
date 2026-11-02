@@ -43,6 +43,7 @@ dependencies {
     implementation("io.quarkus:quarkus-flyway")
     implementation("io.quarkus:quarkus-scheduler")
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
+    implementation("io.micrometer:micrometer-java21")
     implementation("org.flywaydb:flyway-database-postgresql")
 
     implementation("jakarta.data:jakarta.data-api")
