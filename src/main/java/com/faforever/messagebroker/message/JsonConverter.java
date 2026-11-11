@@ -5,13 +5,16 @@ import io.smallrye.reactive.messaging.rabbitmq.IncomingRabbitMQMetadata;
 import io.vertx.core.json.JsonObject;
 import jakarta.enterprise.context.ApplicationScoped;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 
 @RequiredArgsConstructor
 @ApplicationScoped
+@Slf4j
 public class JsonConverter implements MessageConverter {
 
     private final JsonMapper jsonMapper;
@@ -35,11 +38,19 @@ public class JsonConverter implements MessageConverter {
         if (!(target instanceof Class<?> clazz)) {
             throw new IllegalArgumentException("Unknown target type");
         }
-        return in.withPayload(switch (in.getPayload()) {
-            case JsonObject jsonObject -> jsonObject.mapTo(clazz);
-            case byte[] byteArray -> jsonMapper.readValue(byteArray, clazz);
-            case String string -> jsonMapper.readValue(string, clazz);
-            case Object object -> throw new IllegalArgumentException("Unknown payload type: " + object.getClass());
-        });
+        try {
+            return in.withPayload(switch (in.getPayload()) {
+                case JsonObject jsonObject -> jsonObject.mapTo(clazz);
+                case byte[] byteArray -> jsonMapper.readValue(byteArray, clazz);
+                case String string -> jsonMapper.readValue(string, clazz);
+                default -> throw new IllegalArgumentException("Unknown payload type");
+            });
+        } catch (RuntimeException e) {
+            LOG.atWarn().addArgument(() -> switch (in.getPayload()) {
+                case byte[] byteArray -> new String(byteArray, StandardCharsets.UTF_8);
+                case Object object -> object;
+            }).log("Unable to convert payload {}", e);
+            throw e;
+        }
     }
 }
