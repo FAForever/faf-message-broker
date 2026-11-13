@@ -1,7 +1,6 @@
 package com.faforever.messagebroker.session;
 
 import com.faforever.messagebroker.config.FAFProperties;
-import com.faforever.messagebroker.endpoint.connection.LobbyConnection;
 import com.faforever.messagebroker.interceptor.cdi.MDCInterceptor;
 import com.faforever.messagebroker.interceptor.cdi.MDCPopulated;
 import com.faforever.messagebroker.message.MessageBroker;

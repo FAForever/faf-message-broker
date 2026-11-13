@@ -1,6 +1,6 @@
 package com.faforever.messagebroker.endpoint.websocket;
 
-import com.faforever.messagebroker.endpoint.connection.LobbyConnection;
+import com.faforever.messagebroker.session.LobbyConnection;
 import com.faforever.messagebroker.message.client.ProtocolMessage;
 import io.quarkus.websockets.next.HandshakeRequest;
 import io.quarkus.websockets.next.WebSocketConnection;
