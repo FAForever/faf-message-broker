@@ -162,11 +162,9 @@ public class MessageBroker {
                         .stream()
                         .flatMap(entry -> entry.getValue()
                                                .stream()
-                                               .map(sessionHandler -> new PlayerSessionState(entry.getKey(),
-                                                                                             sessionHandler.sessionId(),
-                                                                                             sessionHandler.remoteIp(),
-                                                                                             new PlayerSessionState.State.Existing(
-                                                                                                     fafProperties.playerSessionStatusExpiry()))))
+                                               .map(sessionHandler -> sessionState(entry.getKey(), sessionHandler,
+                                                                                       new PlayerSessionState.State.Existing(
+                                                                                               fafProperties.playerSessionStatusExpiry()))))
                         .forEach(playerConnectionEmitter::send);
     }
 
@@ -193,11 +191,9 @@ public class MessageBroker {
                         .stream()
                         .flatMap(entry -> entry.getValue()
                                                .stream()
-                                               .map(sessionHandler -> new PlayerSessionState(entry.getKey(),
-                                                                                             sessionHandler.sessionId(),
-                                                                                             sessionHandler.remoteIp(),
-                                                                                             new PlayerSessionState.State.Existing(
-                                                                                                     fafProperties.playerSessionStatusExpiry()))))
+                                               .map(sessionHandler -> sessionState(entry.getKey(), sessionHandler,
+                                                                                       new PlayerSessionState.State.Existing(
+                                                                                               fafProperties.playerSessionStatusExpiry()))))
                         .map(playerSessionState -> Message.of(playerSessionState, metadata))
                         .forEach(playerConnectionEmitter::send);
 
@@ -309,6 +305,17 @@ public class MessageBroker {
         sessionHandler.send(message);
     }
 
+    /**
+     * The state of one session for the lobby server, with the user agent the client gave in its {@code ask_session}:
+     * the broker answers that message itself, so this is the only way the lobby server learns it.
+     */
+    private PlayerSessionState sessionState(int playerId, SessionHandler sessionHandler,
+                                            PlayerSessionState.State state) {
+        UserAgent userAgent = sessionHandler.userAgent();
+        return new PlayerSessionState(playerId, sessionHandler.sessionId(), sessionHandler.remoteIp(),
+                                      userAgent.agent(), userAgent.version(), state);
+    }
+
     public void registerSession(int playerId, SessionHandler sessionHandler) {
         LOG.info("Session registered");
         long sessionId = sessionHandler.sessionId();
@@ -324,9 +331,9 @@ public class MessageBroker {
             sessions.add(sessionHandler);
             return sessions;
         });
-        playerConnectionEmitter.send(new PlayerSessionState(playerId, sessionId, sessionHandler.remoteIp(),
-                                                            new PlayerSessionState.State.New(
-                                                                    fafProperties.playerSessionStatusExpiry())));
+        playerConnectionEmitter.send(sessionState(playerId, sessionHandler,
+                                                  new PlayerSessionState.State.New(
+                                                          fafProperties.playerSessionStatusExpiry())));
 
         updateUserAgentGauge();
     }
@@ -340,8 +347,7 @@ public class MessageBroker {
             return;
         }
 
-        playerConnectionEmitter.send(new PlayerSessionState(playerId, sessionId, sessionHandler.remoteIp(),
-                                                            new PlayerSessionState.State.Gone()));
+        playerConnectionEmitter.send(sessionState(playerId, sessionHandler, new PlayerSessionState.State.Gone()));
         playerSessionMap.compute(playerId, (_, sessions) -> {
             if (sessions == null || !sessions.remove(sessionHandler)) {
                 LOG.warn("Session controller not associated with player");

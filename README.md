@@ -151,6 +151,9 @@ microservices:
     - **`gone`**: Emitted via `player-connection` when a session disconnects or is unregistered.
     - **`existing`**: Periodically broadcast via `player-connection` as a keepalive heartbeat for all active sessions on
       a scheduled interval (`faf.player-session-status-refresh-period`, default `1m`).
+    - Every state carries the session's `ip_address` and the `user_agent` and `version` the client sent in its
+      `ask_session`. The broker answers `ask_session` itself, so this is how the lobby server learns which client a
+      player is using (it records it as `login.user_agent`). Both are `null` when the client never sent them.
 - **Active Player Query (RPC)**:
     - Backend services can request an immediate snapshot of active players by publishing a message to exchange
       `lobby-session-request` (`player-active-request`) with a RabbitMQ `replyTo` queue header.
