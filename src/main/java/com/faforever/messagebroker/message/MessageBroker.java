@@ -2,7 +2,6 @@ package com.faforever.messagebroker.message;
 
 import com.faforever.messagebroker.config.FAFProperties;
 import com.faforever.messagebroker.domain.LobbyCommandSchema;
-import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
 import com.faforever.messagebroker.interceptor.cdi.MDCPopulated;
 import com.faforever.messagebroker.message.client.ConnectionMessage;
 import com.faforever.messagebroker.message.client.FailedMessage;
@@ -77,7 +76,7 @@ public class MessageBroker {
 
     private final SchemaRegistry schemaRegistry = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12);
 
-    public MessageBroker(FAFProperties fafProperties,
+    MessageBroker(FAFProperties fafProperties,
                          @Channel("lobby-schema-request") Emitter<Map<String, String>> schemaRequestEmitter,
                          @Channel("lobby-inbound") Emitter<InboundPassthroughMessage> lobbyMessageEmitter,
                          @Channel("player-connection") Emitter<PlayerSessionState> playerConnectionEmitter,

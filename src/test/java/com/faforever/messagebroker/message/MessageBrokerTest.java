@@ -1,7 +1,6 @@
 package com.faforever.messagebroker.message;
 
 import com.faforever.messagebroker.domain.LobbyCommandSchema;
-import com.faforever.messagebroker.domain.LobbyCommandSchemaRepository;
 import com.faforever.messagebroker.message.client.ConnectionMessage;
 import com.faforever.messagebroker.session.UserAgent;
 import com.faforever.messagebroker.session.SessionHandler;

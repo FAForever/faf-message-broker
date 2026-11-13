@@ -12,13 +12,14 @@ import io.quarkus.websockets.next.WebSocket;
 import io.quarkus.websockets.next.WebSocketConnection;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.enterprise.context.SessionScoped;
+import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.Serializable;
 
 @Slf4j
-@RequiredArgsConstructor
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 @WebSocket(path = "/")
 @SessionScoped
 @RunOnVirtualThread
