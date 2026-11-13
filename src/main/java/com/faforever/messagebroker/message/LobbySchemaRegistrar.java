@@ -15,6 +15,7 @@ import com.github.victools.jsonschema.module.jackson.JacksonOption;
 import com.github.victools.jsonschema.module.jackson.JacksonSchemaModule;
 import io.quarkus.runtime.Startup;
 import jakarta.enterprise.context.ApplicationScoped;
+import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.PropertyNamingStrategies;
@@ -25,7 +26,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @ApplicationScoped
-@RequiredArgsConstructor
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 public class LobbySchemaRegistrar {
 
     private static final JacksonSchemaModule JACKSON_MODULE = new JacksonSchemaModule(

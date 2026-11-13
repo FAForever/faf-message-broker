@@ -1,6 +1,6 @@
 package com.faforever.messagebroker.endpoint.session;
 
-import com.faforever.messagebroker.endpoint.connection.LobbyConnection;
+import com.faforever.messagebroker.session.LobbyConnection;
 import com.faforever.messagebroker.message.MessageBroker;
 import com.faforever.messagebroker.message.client.ConnectionMessage;
 import com.faforever.messagebroker.message.client.PassthroughMessage;

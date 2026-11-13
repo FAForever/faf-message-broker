@@ -4,6 +4,7 @@ import io.smallrye.reactive.messaging.MessageConverter;
 import io.smallrye.reactive.messaging.rabbitmq.IncomingRabbitMQMetadata;
 import io.vertx.core.json.JsonObject;
 import jakarta.enterprise.context.ApplicationScoped;
+import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.microprofile.reactive.messaging.Message;
@@ -12,7 +13,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 
-@RequiredArgsConstructor
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 @ApplicationScoped
 @Slf4j
 public class JsonConverter implements MessageConverter {

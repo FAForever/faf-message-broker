@@ -1,4 +1,4 @@
-package com.faforever.messagebroker.endpoint.connection;
+package com.faforever.messagebroker.session;
 
 
 import com.faforever.messagebroker.message.client.ProtocolMessage;

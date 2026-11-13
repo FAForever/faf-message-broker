@@ -1,5 +1,6 @@
-package com.faforever.messagebroker.domain;
+package com.faforever.messagebroker.message;
 
+import com.faforever.messagebroker.domain.LobbyCommandSchema;
 import jakarta.data.repository.Find;
 import jakarta.data.repository.Repository;
 import jakarta.data.repository.Save;

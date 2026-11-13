@@ -24,6 +24,7 @@ import tools.jackson.databind.node.ObjectNode;
 @AllArgsConstructor
 @Getter
 @Setter
+@SuppressWarnings("NullAway.Init")
 public class LobbyCommandSchema {
 
     @EmbeddedId
@@ -45,7 +46,7 @@ public class LobbyCommandSchema {
             Direction direction
     ) {}
 
-    @RequiredArgsConstructor
+    @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
     @Getter
     public enum Direction {
         INBOUND("inbound"), OUTBOUND("outbound");
