@@ -7,8 +7,6 @@ quarkus:
     enabled: false
   application:
     name: faf-message-broker
-  jackson:
-    property-naming-strategy: SNAKE_CASE
   datasource:
     db-kind: postgresql
     username: ${DATABASE_USER:faf-message-broker}
