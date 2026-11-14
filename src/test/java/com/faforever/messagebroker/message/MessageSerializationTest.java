@@ -1,5 +1,6 @@
 package com.faforever.messagebroker.message;
 
+import com.faforever.messagebroker.jackson.JacksonCustomizer;
 import com.faforever.messagebroker.message.client.ConnectionMessage;
 import com.faforever.messagebroker.message.client.FailedMessage;
 import com.faforever.messagebroker.message.client.PassthroughMessage;
@@ -8,6 +9,9 @@ import com.faforever.messagebroker.message.service.InboundPassthroughMessage;
 import com.faforever.messagebroker.message.service.LobbySchemaDetails;
 import com.faforever.messagebroker.message.service.OutboundPassthroughMessage;
 import com.faforever.messagebroker.message.service.OutboundTarget;
+import io.quarkus.jackson.runtime.JsonMapperProducer;
+import io.quarkus.test.component.QuarkusComponentTest;
+import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.skyscreamer.jsonassert.JSONAssert;
@@ -21,16 +25,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+@QuarkusComponentTest({JsonMapperProducer.class, JacksonCustomizer.class})
 public class MessageSerializationTest {
 
-    private JsonMapper jsonMapper;
-
-    @BeforeEach
-    void setup() {
-        jsonMapper = JsonMapper.builder()
-                               .propertyNamingStrategy(new PropertyNamingStrategies.SnakeCaseStrategy())
-                               .build();
-    }
+    @Inject
+    JsonMapper jsonMapper;
 
     @Test
     void testPingSerialization() throws Exception {
